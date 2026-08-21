@@ -97,6 +97,7 @@ function setSyncStatus(text, cls) {
 
 const AUTH_ERRORS = new Set([
   'missing_token', 'invalid_token', 'client_id_mismatch', 'email_not_verified', 'email_not_allowlisted', 'exception',
+  'unauthorized', // legacy code from older Code.gs deployments, kept so a stale deployment still signs out cleanly
 ]);
 
 function authErrorMessage(data) {
@@ -111,6 +112,8 @@ function authErrorMessage(data) {
       return 'Google rejected the sign-in token — try signing in again.';
     case 'missing_token':
       return 'No sign-in token was sent — try signing in again.';
+    case 'unauthorized':
+      return 'Backend rejected the request (it may be running an outdated Code.gs deployment — redeploy the latest version).';
     default:
       return 'This Google account is not authorized for LapLog.';
   }
