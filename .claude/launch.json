@@ -4,7 +4,7 @@
     {
       "name": "baeck-fitness-tracker",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["-y", "vercel", "dev", "--listen", "3000"],
+      "runtimeArgs": ["-y", "vercel", "dev", "--listen", "3000", "--yes"],
       "port": 3000
     }
   ]
