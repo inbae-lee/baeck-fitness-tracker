@@ -1,4 +1,4 @@
-const CACHE_NAME = 'laplog-v1';
+const CACHE_NAME = 'laplog-v2';
 const APP_SHELL = [
   './',
   './index.html',

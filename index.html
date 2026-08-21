@@ -11,35 +11,33 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <link rel="stylesheet" href="style.css" />
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
-<header class="topbar">
-  <h1>LapLog</h1>
-  <span id="syncStatus" class="sync-status" title="Sync status"></span>
-</header>
 
-<nav class="tabs" id="tabs">
-  <button class="tab active" data-view="week">This Week</button>
-  <button class="tab" data-view="history">History</button>
-  <button class="tab" data-view="monthly">Monthly</button>
-</nav>
-
-<main id="app"></main>
-
-<template id="tpl-counter-row">
-  <div class="row counter-row">
-    <div class="row-label">
-      <span class="row-title"></span>
-      <span class="row-unit"></span>
-    </div>
-    <div class="row-control">
-      <button class="btn-step minus" aria-label="Decrease">−</button>
-      <span class="count-value">0</span>
-      <button class="btn-step plus" aria-label="Increase">+</button>
-    </div>
-    <div class="row-flag"></div>
+<div id="authGate" class="auth-gate">
+  <div class="auth-card">
+    <h1>LapLog</h1>
+    <p>Sign in with an authorized Google account to continue.</p>
+    <div id="googleSignInButton"></div>
+    <div id="authError" class="auth-error"></div>
   </div>
-</template>
+</div>
+
+<div id="appRoot" class="app-root" hidden>
+  <header class="topbar">
+    <h1>LapLog</h1>
+    <span id="syncStatus" class="sync-status" title="Sync status"></span>
+  </header>
+
+  <nav class="tabs" id="tabs">
+    <button class="tab active" data-view="week">This Week</button>
+    <button class="tab" data-view="history">History</button>
+    <button class="tab" data-view="monthly">Monthly</button>
+  </nav>
+
+  <main id="app"></main>
+</div>
 
 <script src="config.js"></script>
 <script src="app.js"></script>

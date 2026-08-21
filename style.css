@@ -273,3 +273,44 @@ html, body {
   padding: 40px 20px;
   font-size: 14px;
 }
+
+.auth-gate {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.auth-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 32px 28px;
+  text-align: center;
+  max-width: 320px;
+  width: 100%;
+}
+
+.auth-card h1 {
+  margin: 0 0 8px;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+}
+
+.auth-card p {
+  margin: 0 0 20px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+#googleSignInButton {
+  display: flex;
+  justify-content: center;
+}
+
+.auth-error {
+  margin-top: 14px;
+  color: #dc2626;
+  font-size: 13px;
+}

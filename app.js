@@ -96,16 +96,19 @@ function setSyncStatus(text, cls) {
 }
 
 async function fetchFromServer() {
-  if (!APP_CONFIG.API_URL || APP_CONFIG.API_URL.startsWith('PASTE_')) {
-    setSyncStatus('offline (no API configured)', 'error');
+  if (!APP_CONFIG.API_URL || APP_CONFIG.API_URL.startsWith('PASTE_') || !idToken) {
+    setSyncStatus('offline (not signed in)', 'error');
     return;
   }
   setSyncStatus('syncing…', 'syncing');
   try {
-    const url = `${APP_CONFIG.API_URL}?secret=${encodeURIComponent(APP_CONFIG.SECRET)}`;
+    const url = `${APP_CONFIG.API_URL}?id_token=${encodeURIComponent(idToken)}`;
     const res = await fetch(url);
     const data = await res.json();
-    if (!data.ok) throw new Error(data.error || 'fetch_failed');
+    if (!data.ok) {
+      if (data.error === 'unauthorized') return signOut('This Google account is not authorized for LapLog.');
+      throw new Error(data.error || 'fetch_failed');
+    }
     data.weeks.forEach(w => {
       const local = weeks[w.weekKey];
       if (!local || !local.updatedAt || (w.updatedAt && w.updatedAt > local.updatedAt)) {
@@ -128,17 +131,20 @@ function queueSave(weekKey) {
 }
 
 async function pushWeek(weekKey) {
-  if (!APP_CONFIG.API_URL || APP_CONFIG.API_URL.startsWith('PASTE_')) return;
+  if (!APP_CONFIG.API_URL || APP_CONFIG.API_URL.startsWith('PASTE_') || !idToken) return;
   const week = weeks[weekKey];
   if (!week) return;
   setSyncStatus('saving…', 'syncing');
   try {
     const res = await fetch(APP_CONFIG.API_URL, {
       method: 'POST',
-      body: JSON.stringify({ secret: APP_CONFIG.SECRET, week }),
+      body: JSON.stringify({ id_token: idToken, week }),
     });
     const data = await res.json();
-    if (!data.ok) throw new Error(data.error || 'save_failed');
+    if (!data.ok) {
+      if (data.error === 'unauthorized') return signOut('This Google account is not authorized for LapLog.');
+      throw new Error(data.error || 'save_failed');
+    }
     weeks[weekKey] = data.week;
     saveLocal();
     setSyncStatus('synced', '');
@@ -376,12 +382,73 @@ function initTabs() {
   });
 }
 
+// ---------- auth ----------
+
+const ID_TOKEN_KEY = 'laplog:idToken';
+let idToken = null;
+
+function showAuthGate(message) {
+  document.getElementById('authGate').hidden = false;
+  document.getElementById('appRoot').hidden = true;
+  document.getElementById('authError').textContent = message || '';
+}
+
+function showApp() {
+  document.getElementById('authGate').hidden = true;
+  document.getElementById('appRoot').hidden = false;
+}
+
+function signOut(message) {
+  idToken = null;
+  sessionStorage.removeItem(ID_TOKEN_KEY);
+  if (window.google && google.accounts && google.accounts.id) {
+    google.accounts.id.disableAutoSelect();
+  }
+  showAuthGate(message);
+}
+
+async function afterSignIn() {
+  showApp();
+  render();
+  await fetchFromServer();
+}
+
+function handleCredentialResponse(response) {
+  idToken = response.credential;
+  sessionStorage.setItem(ID_TOKEN_KEY, idToken);
+  afterSignIn();
+}
+
+function initGoogleSignIn() {
+  if (!APP_CONFIG.CLIENT_ID || APP_CONFIG.CLIENT_ID.startsWith('PASTE_')) {
+    showAuthGate('Google sign-in is not configured yet (missing CLIENT_ID in config.js).');
+    return;
+  }
+  google.accounts.id.initialize({
+    client_id: APP_CONFIG.CLIENT_ID,
+    callback: handleCredentialResponse,
+  });
+  google.accounts.id.renderButton(
+    document.getElementById('googleSignInButton'),
+    { theme: 'outline', size: 'large', text: 'signin_with' }
+  );
+
+  const saved = sessionStorage.getItem(ID_TOKEN_KEY);
+  if (saved) {
+    idToken = saved;
+    afterSignIn();
+  } else {
+    google.accounts.id.prompt();
+  }
+}
+
 // ---------- init ----------
 
 loadLocal();
 initTabs();
-render();
-fetchFromServer();
+showAuthGate('');
+
+window.addEventListener('load', initGoogleSignIn);
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -389,4 +456,4 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-window.addEventListener('online', fetchFromServer);
+window.addEventListener('online', () => { if (idToken) fetchFromServer(); });

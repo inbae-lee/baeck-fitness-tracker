@@ -1,10 +1,13 @@
 /**
  * LapLog backend — Google Apps Script Web App.
  * Sheet = database. Deploy as Web App (Execute as: Me, Access: Anyone).
- * Frontend calls this URL with a shared SECRET for basic write protection.
+ * Frontend sends a Google Sign-In ID token with every request; this file
+ * verifies it against Google and checks the signed-in email against
+ * ALLOWED_EMAILS before reading or writing anything.
  */
 
-const SECRET = 'baeleeshious'; // must match SECRET in the frontend's config.js
+const GOOGLE_CLIENT_ID = 'PASTE_YOUR_GOOGLE_OAUTH_CLIENT_ID_HERE.apps.googleusercontent.com'; // must match CLIENT_ID in the frontend's config.js
+const ALLOWED_EMAILS = ['inbaelee@gmail.com', 'carenkang@gmail.com'];
 const SHEET_NAME = 'WeeklyLogs';
 
 const COLUMNS = [
@@ -36,9 +39,32 @@ function rowToObject_(row) {
   return obj;
 }
 
+/**
+ * Verifies a Google ID token against Google's tokeninfo endpoint and returns
+ * the signed-in email if it's valid, unexpired, for our client, and on the
+ * allowlist. Returns null otherwise.
+ */
+function verifyIdToken_(idToken) {
+  if (!idToken) return null;
+  try {
+    const res = UrlFetchApp.fetch(
+      'https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken),
+      { muteHttpExceptions: true }
+    );
+    if (res.getResponseCode() !== 200) return null;
+    const payload = JSON.parse(res.getContentText());
+    if (payload.aud !== GOOGLE_CLIENT_ID) return null;
+    if (payload.email_verified !== 'true' && payload.email_verified !== true) return null;
+    if (ALLOWED_EMAILS.indexOf(payload.email) === -1) return null;
+    return payload.email;
+  } catch (err) {
+    return null;
+  }
+}
+
 function doGet(e) {
-  const secret = e.parameter.secret;
-  if (secret !== SECRET) {
+  const email = verifyIdToken_(e.parameter.id_token);
+  if (!email) {
     return json_({ ok: false, error: 'unauthorized' });
   }
   const sheet = getSheet_();
@@ -56,7 +82,8 @@ function doPost(e) {
     return json_({ ok: false, error: 'bad_json' });
   }
 
-  if (body.secret !== SECRET) {
+  const email = verifyIdToken_(body.id_token);
+  if (!email) {
     return json_({ ok: false, error: 'unauthorized' });
   }
 
