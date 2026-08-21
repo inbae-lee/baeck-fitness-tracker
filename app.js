@@ -109,10 +109,13 @@ function saveLocal() {
 
 const syncStatusEl = () => document.getElementById('syncStatus');
 
+// Rendered as a colored dot (green/yellow/red via the cls class) rather than
+// text, to save space next to the email on narrow screens — the full text
+// is still available as a tooltip.
 function setSyncStatus(text, cls) {
   const el = syncStatusEl();
   if (!el) return;
-  el.textContent = text;
+  el.title = text || 'Sync status';
   el.className = 'sync-status' + (cls ? ' ' + cls : '');
 }
 

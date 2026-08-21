@@ -46,12 +46,32 @@ html, body {
   white-space: nowrap;
 }
 
+.title-short { display: none; }
+
 .user-email {
   font-size: 12px;
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .title-full { display: none; }
+  .title-short { display: inline; }
+
+  .topbar-left {
+    flex-direction: column;
+    align-items: stretch;
+    flex: 1 1 auto;
+    gap: 1px;
+  }
+
+  .user-email {
+    max-width: 100%;
+  }
+
+  .tabs { top: 66px; }
 }
 
 .topbar-right {
@@ -62,10 +82,14 @@ html, body {
 }
 
 .sync-status {
-  font-size: 12px;
-  color: var(--muted);
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--good);
+  flex-shrink: 0;
 }
-.sync-status.syncing { color: var(--accent); }
+.sync-status.syncing { background: #eab308; }
+.sync-status.error { background: #dc2626; }
 
 .signout-btn {
   border: none;
@@ -77,7 +101,6 @@ html, body {
   padding: 4px 0;
 }
 .signout-btn:hover { color: var(--accent); }
-.sync-status.error { color: #dc2626; }
 
 .tabs {
   display: flex;
@@ -255,8 +278,15 @@ html, body {
   margin-bottom: 6px;
 }
 
+/* Deliberately reads as a passive readout, not another actionable card:
+   tinted flat background instead of the white/shadowed card surface, and a
+   monospace face on the values like a status display rather than the
+   sans-serif used for tappable controls elsewhere. */
 .info-card {
   padding: 14px 16px;
+  background: var(--accent-soft);
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .info-grid {
@@ -272,21 +302,27 @@ html, body {
 }
 
 .info-value {
-  font-size: 15px;
-  font-weight: 600;
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
 }
 
 .info-label {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 .info-progress {
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px solid var(--border);
-  font-size: 14px;
-  font-weight: 600;
+  border-top: 1px solid rgba(79, 70, 229, 0.15);
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent);
 }
 
 .history-card {
