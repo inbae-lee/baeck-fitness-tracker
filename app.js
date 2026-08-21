@@ -154,28 +154,41 @@ async function fetchFromServer() {
       if (AUTH_ERRORS.has(data.error)) return signOut(authErrorMessage(data));
       throw new Error(data.error || 'fetch_failed');
     }
+    let changed = false;
     data.weeks.forEach(w => {
       const local = weeks[w.weekKey];
       if (!local || !local.updatedAt || (w.updatedAt && w.updatedAt > local.updatedAt)) {
         weeks[w.weekKey] = w;
+        changed = true;
       }
     });
     saveLocal();
     setSyncStatus('synced', '');
-    render();
+    // Skip the re-render when nothing actually changed: render() tears down
+    // and rebuilds the whole view, and fetchFromServer runs on the 'online'
+    // event, which fires often on phones (wifi/cellular handoff, lock/
+    // unlock). Rebuilding the DOM under a finger mid-tap makes the tap land
+    // on nothing, or on whatever's now at those coordinates.
+    if (changed) render();
   } catch (e) {
     setSyncStatus('offline', 'error');
   }
 }
 
+// Bumped on every local edit so an in-flight push can tell, once its
+// response comes back, whether a newer edit happened while it was in
+// flight — Sheets round-trips (OAuth + GET + PUT/append) can take
+// 1-3+ seconds on mobile, plenty of time for another tap to land first.
+let saveVersion = 0;
 let pendingSave = null;
 function queueSave(weekKey) {
   saveLocal();
+  const version = ++saveVersion;
   clearTimeout(pendingSave);
-  pendingSave = setTimeout(() => pushWeek(weekKey), 600);
+  pendingSave = setTimeout(() => pushWeek(weekKey, version), 600);
 }
 
-async function pushWeek(weekKey) {
+async function pushWeek(weekKey, version) {
   if (!idToken) return;
   const week = weeks[weekKey];
   if (!week) return;
@@ -191,7 +204,17 @@ async function pushWeek(weekKey) {
       if (AUTH_ERRORS.has(data.error)) return signOut(authErrorMessage(data));
       throw new Error(data.error || 'save_failed');
     }
-    weeks[weekKey] = data.week;
+    if (version === saveVersion) {
+      // No edits happened while this request was in flight — the server's
+      // copy is authoritative (carries its own updatedAt/email).
+      weeks[weekKey] = data.week;
+    } else if (weeks[weekKey]) {
+      // A newer edit landed while this request was in flight. Adopting
+      // data.week here would clobber that edit (it reflects the older
+      // snapshot this request sent). Leave local state alone — the newer
+      // edit already has its own pushWeek queued and will sync it.
+      weeks[weekKey].updatedAt = data.week.updatedAt;
+    }
     saveLocal();
     setSyncStatus('synced', '');
   } catch (e) {
