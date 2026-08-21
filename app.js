@@ -401,6 +401,7 @@ function initTabs() {
     currentView = btn.dataset.view;
     render();
   });
+  document.getElementById('signOutBtn').addEventListener('click', () => signOut(''));
 }
 
 // ---------- auth ----------
