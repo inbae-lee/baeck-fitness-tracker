@@ -4,7 +4,7 @@
  * Frontend calls this URL with a shared SECRET for basic write protection.
  */
 
-const SECRET = 'CHANGE_ME'; // must match SECRET in the frontend's config.js
+const SECRET = 'baeleeshious'; // must match SECRET in the frontend's config.js
 const SHEET_NAME = 'WeeklyLogs';
 
 const COLUMNS = [
