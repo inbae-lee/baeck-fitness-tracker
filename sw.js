@@ -1,4 +1,4 @@
-const CACHE_NAME = 'laplog-v2';
+const CACHE_NAME = 'laplog-v3';
 const APP_SHELL = [
   './',
   './index.html',
@@ -28,7 +28,8 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
-  if (url.origin !== self.location.origin) return; // let API calls hit the network directly
+  if (url.origin !== self.location.origin) return; // let cross-origin requests hit the network directly
+  if (url.pathname.startsWith('/api/')) return; // never cache API responses — they're same-origin now, but must stay live
 
   event.respondWith(
     caches.match(event.request).then((cached) => {

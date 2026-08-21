@@ -19,6 +19,7 @@ const STEP_DAYS = [
 ];
 
 const STORAGE_KEY = 'laplog:weeks';
+const API_URL = '/api/weeks';
 
 // ---------- date helpers ----------
 
@@ -96,37 +97,34 @@ function setSyncStatus(text, cls) {
 }
 
 const AUTH_ERRORS = new Set([
-  'missing_token', 'invalid_token', 'client_id_mismatch', 'email_not_verified', 'email_not_allowlisted', 'exception',
-  'unauthorized', // legacy code from older Code.gs deployments, kept so a stale deployment still signs out cleanly
+  'missing_token', 'invalid_token', 'client_id_mismatch', 'email_not_verified', 'email_not_allowlisted',
 ]);
 
 function authErrorMessage(data) {
   switch (data.error) {
     case 'client_id_mismatch':
-      return `Client ID mismatch — frontend config.js and Apps Script's GOOGLE_CLIENT_ID don't match (token was issued for ${data.tokenAud || 'unknown'}).`;
+      return `Client ID mismatch — frontend config.js and Vercel's GOOGLE_CLIENT_ID env var don't match.`;
     case 'email_not_allowlisted':
-      return `${data.email || 'This account'} is not in ALLOWED_EMAILS in Code.gs.`;
+      return `${data.email || 'This account'} is not in the ALLOWED_EMAILS env var.`;
     case 'email_not_verified':
       return `${data.email || 'This account'}'s email isn't verified by Google.`;
     case 'invalid_token':
       return 'Google rejected the sign-in token — try signing in again.';
     case 'missing_token':
       return 'No sign-in token was sent — try signing in again.';
-    case 'unauthorized':
-      return 'Backend rejected the request (it may be running an outdated Code.gs deployment — redeploy the latest version).';
     default:
       return 'This Google account is not authorized for LapLog.';
   }
 }
 
 async function fetchFromServer() {
-  if (!APP_CONFIG.API_URL || APP_CONFIG.API_URL.startsWith('PASTE_') || !idToken) {
+  if (!idToken) {
     setSyncStatus('offline (not signed in)', 'error');
     return;
   }
   setSyncStatus('syncing…', 'syncing');
   try {
-    const url = `${APP_CONFIG.API_URL}?id_token=${encodeURIComponent(idToken)}`;
+    const url = `${API_URL}?id_token=${encodeURIComponent(idToken)}`;
     const res = await fetch(url);
     const data = await res.json();
     if (!data.ok) {
@@ -155,13 +153,14 @@ function queueSave(weekKey) {
 }
 
 async function pushWeek(weekKey) {
-  if (!APP_CONFIG.API_URL || APP_CONFIG.API_URL.startsWith('PASTE_') || !idToken) return;
+  if (!idToken) return;
   const week = weeks[weekKey];
   if (!week) return;
   setSyncStatus('saving…', 'syncing');
   try {
-    const res = await fetch(APP_CONFIG.API_URL, {
+    const res = await fetch(API_URL, {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id_token: idToken, week }),
     });
     const data = await res.json();

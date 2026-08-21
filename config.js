@@ -1,7 +1,6 @@
-// Fill these in after deploying the Apps Script web app and creating a Google
-// OAuth client ID (see README.md). Both values here are safe to be public —
-// neither is a secret; access is enforced by the email allowlist in Code.gs.
+// Public Google OAuth Client ID (not a secret — safe to commit and expose
+// client-side). Must match GOOGLE_CLIENT_ID in the Vercel project's
+// environment variables (see README.md).
 const APP_CONFIG = {
-  API_URL: 'https://script.google.com/macros/s/AKfycbzWOUwEk2CgS_71Jgkh1URc6TGE0MqHEQ884qmWvbKUJPUBP1_Bv5nusjWkuURsrus/exec',
   CLIENT_ID: '394344500550-rm3l29483m54c60fpuergmldevb2vb3k.apps.googleusercontent.com',
 };
