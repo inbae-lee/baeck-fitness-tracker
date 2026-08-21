@@ -3,5 +3,5 @@
 // neither is a secret; access is enforced by the email allowlist in Code.gs.
 const APP_CONFIG = {
   API_URL: 'https://script.google.com/macros/s/AKfycbzWOUwEk2CgS_71Jgkh1URc6TGE0MqHEQ884qmWvbKUJPUBP1_Bv5nusjWkuURsrus/exec',
-  CLIENT_ID: 'PASTE_YOUR_GOOGLE_OAUTH_CLIENT_ID_HERE.apps.googleusercontent.com',
+  CLIENT_ID: '394344500550-rm3l29483m54c60fpuergmldevb2vb3k.apps.googleusercontent.com',
 };
