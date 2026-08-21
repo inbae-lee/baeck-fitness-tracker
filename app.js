@@ -314,13 +314,15 @@ function renderWeekView() {
       </div>
     `;
     row.querySelector('.plus').addEventListener('click', () => {
-      week[cat.key]++;
-      queueSave(week.weekKey);
+      const w = getOrCreateCurrentWeek();
+      w[cat.key]++;
+      queueSave(w.weekKey);
       renderWeekView();
     });
     row.querySelector('.minus').addEventListener('click', () => {
-      week[cat.key] = Math.max(0, week[cat.key] - 1);
-      queueSave(week.weekKey);
+      const w = getOrCreateCurrentWeek();
+      w[cat.key] = Math.max(0, w[cat.key] - 1);
+      queueSave(w.weekKey);
       renderWeekView();
     });
     card.appendChild(row);
@@ -344,8 +346,9 @@ function renderWeekView() {
       <button class="step-toggle ${week[d.key] ? 'done' : ''}" aria-label="${d.key}"></button>
     `;
     cell.querySelector('.step-toggle').addEventListener('click', () => {
-      week[d.key] = week[d.key] ? 0 : 1;
-      queueSave(week.weekKey);
+      const w = getOrCreateCurrentWeek();
+      w[d.key] = w[d.key] ? 0 : 1;
+      queueSave(w.weekKey);
       renderWeekView();
     });
     grid.appendChild(cell);
@@ -370,8 +373,9 @@ function renderWeekView() {
       <button class="step-toggle ${week[d.key] ? 'done' : ''}" aria-label="${d.key}"></button>
     `;
     cell.querySelector('.step-toggle').addEventListener('click', () => {
-      week[d.key] = week[d.key] ? 0 : 1;
-      queueSave(week.weekKey);
+      const w = getOrCreateCurrentWeek();
+      w[d.key] = w[d.key] ? 0 : 1;
+      queueSave(w.weekKey);
       renderWeekView();
     });
     restGrid.appendChild(cell);
