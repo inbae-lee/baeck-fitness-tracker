@@ -1,4 +1,4 @@
-# baeck-fitness-tracker
+# baeck-fitness-tracker v1.0
 
 A weekly workout tracker PWA, built for free: Google Sheet (database) → Vercel serverless
 function (backend API) → Vercel static hosting (installable frontend). No subscriptions,
@@ -14,8 +14,16 @@ Tracks:
 - Golf Practice (30min+, no minimum)
 - Full Rest Day (1×/week)
 
-Weekly logs auto-archive into a browsable History tab, and roll up into a Monthly tab
+Weekly logs auto-archive into a browsable Past Weeks tab, and roll up into a Monthly tab
 for quarterly review.
+
+## Versioning
+
+Version is `package.json`'s `version` field (`MAJOR.MINOR.0`), also shown in the page
+title and header. Every commit+push bumps `MINOR` by one (`v1.0` → `v1.1` → `v1.2` …);
+`MAJOR` only changes on explicit instruction (and resets `MINOR` to `0`). When bumping,
+update the version in three places: `package.json`, the `<title>` and both `<h1>`s in
+[index.html](index.html), and the heading here in the README.
 
 Stack:
 - **Frontend**: plain HTML/CSS/JS, no build step, using
