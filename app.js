@@ -183,9 +183,10 @@ let saveVersion = 0;
 let pendingSave = null;
 function queueSave(weekKey) {
   saveLocal();
+  setSyncStatus('pending…', 'pending');
   const version = ++saveVersion;
   clearTimeout(pendingSave);
-  pendingSave = setTimeout(() => pushWeek(weekKey, version), 600);
+  pendingSave = setTimeout(() => pushWeek(weekKey, version), 1000);
 }
 
 async function pushWeek(weekKey, version) {
@@ -259,18 +260,12 @@ function renderInfoCard(week) {
 
   const today = new Date();
   const dateLabel = today.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
-  const [year, weekNum] = currentWeekKey().split('-W');
-  const weekLabel = `Week ${parseInt(weekNum, 10)} · ${year}`;
 
   card.innerHTML = `
     <div class="info-grid">
       <div class="info-item">
         <span class="info-value">${dateLabel}</span>
         <span class="info-label">Today</span>
-      </div>
-      <div class="info-item">
-        <span class="info-value">${weekLabel}</span>
-        <span class="info-label">Week</span>
       </div>
     </div>
     <div class="info-progress">Weekly Progress: ${weeklyProgressPercent(week)}%</div>
@@ -285,7 +280,8 @@ function renderWeekView() {
 
   const summary = document.createElement('div');
   summary.className = 'week-summary';
-  summary.textContent = `Week of ${fmtDate(week.startDate)}`;
+  const weekNum = parseInt(currentWeekKey().split('-W')[1], 10);
+  summary.textContent = `Week of ${fmtDate(week.startDate)} (wk${weekNum})`;
   wrap.appendChild(summary);
 
   wrap.appendChild(renderInfoCard(week));
@@ -321,7 +317,8 @@ function renderWeekView() {
     });
     row.querySelector('.minus').addEventListener('click', () => {
       const w = getOrCreateCurrentWeek();
-      w[cat.key] = Math.max(0, w[cat.key] - 1);
+      if (w[cat.key] === 0) return;
+      w[cat.key]--;
       queueSave(w.weekKey);
       renderWeekView();
     });
