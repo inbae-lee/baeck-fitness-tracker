@@ -19,12 +19,13 @@ const COLUMNS = [
   'weekKey', 'email', 'startDate',
   'uphillWalk', 'slowJog', 'strength',
   'steps_mon', 'steps_tue', 'steps_wed', 'steps_thu', 'steps_fri', 'steps_sat', 'steps_sun',
-  'padel', 'golf', 'restDay',
+  'padel', 'golf',
+  'rest_mon', 'rest_tue', 'rest_wed', 'rest_thu', 'rest_fri', 'rest_sat', 'rest_sun',
   'updatedAt',
 ];
 const WEEK_KEY_COL = COLUMNS.indexOf('weekKey');
 const EMAIL_COL = COLUMNS.indexOf('email');
-const LAST_COL_LETTER = String.fromCharCode('A'.charCodeAt(0) + COLUMNS.length - 1); // 'Q' for 17 columns
+const LAST_COL_LETTER = String.fromCharCode('A'.charCodeAt(0) + COLUMNS.length - 1); // 'W' for 23 columns
 const FULL_RANGE = `${SHEET_NAME}!A:${LAST_COL_LETTER}`;
 
 const oauthClient = new OAuth2Client(CLIENT_ID);

@@ -255,6 +255,40 @@ html, body {
   margin-bottom: 6px;
 }
 
+.info-card {
+  padding: 14px 16px;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.info-value {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.info-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.info-progress {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+  font-weight: 600;
+}
+
 .history-card {
   cursor: pointer;
 }

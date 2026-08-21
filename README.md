@@ -64,7 +64,7 @@ Stack:
 4. **Create and share a Sheet**: make a new Google Sheet, add a tab named exactly
    `WeeklyLogs`, and give it this header row:
    ```
-   weekKey  email  startDate  uphillWalk  slowJog  strength  steps_mon  steps_tue  steps_wed  steps_thu  steps_fri  steps_sat  steps_sun  padel  golf  restDay  updatedAt
+   weekKey  email  startDate  uphillWalk  slowJog  strength  steps_mon  steps_tue  steps_wed  steps_thu  steps_fri  steps_sat  steps_sun  padel  golf  rest_mon  rest_tue  rest_wed  rest_thu  rest_fri  rest_sat  rest_sun  updatedAt
    ```
    Each signed-in account gets its own row per week — `weekKey` alone isn't unique,
    `(weekKey, email)` is. The `email` value is set by the backend from the verified ID

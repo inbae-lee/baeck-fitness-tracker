@@ -18,6 +18,16 @@ const STEP_DAYS = [
   { key: 'steps_sun', label: 'S' },
 ];
 
+const REST_DAYS = [
+  { key: 'rest_mon', label: 'M' },
+  { key: 'rest_tue', label: 'T' },
+  { key: 'rest_wed', label: 'W' },
+  { key: 'rest_thu', label: 'T' },
+  { key: 'rest_fri', label: 'F' },
+  { key: 'rest_sat', label: 'S' },
+  { key: 'rest_sun', label: 'S' },
+];
+
 const STORAGE_KEY = 'laplog:weeks';
 const API_URL = '/api/weeks';
 
@@ -57,7 +67,7 @@ function emptyWeek(weekKey, startDate) {
   const w = { weekKey, startDate: startDate.toISOString().slice(0, 10) };
   CATEGORIES.forEach(c => { w[c.key] = 0; });
   STEP_DAYS.forEach(d => { w[d.key] = 0; });
-  w.restDay = 0;
+  REST_DAYS.forEach(d => { w[d.key] = 0; });
   return w;
 }
 
@@ -192,6 +202,56 @@ function meetsMin(cat, week) {
   return cat.min > 0 && week[cat.key] >= cat.min;
 }
 
+// Each category/day/toggle is worth points if its threshold is met; percent
+// is earned/possible across all of them. Threshold is the category's stated
+// minimum, or 1 for categories with no minimum ("did it at all" counts).
+function weeklyProgressPercent(week) {
+  let earned = 0;
+  let possible = 0;
+
+  CATEGORIES.forEach(cat => {
+    const threshold = Math.max(cat.min, 1);
+    possible += threshold;
+    if (week[cat.key] >= threshold) earned += threshold;
+  });
+  STEP_DAYS.forEach(d => {
+    possible += 1;
+    if (week[d.key]) earned += 1;
+  });
+  possible += 1; // full rest day — worth 1 point regardless of how many days are picked
+  if (REST_DAYS.some(d => week[d.key])) earned += 1;
+
+  return Math.round((earned / possible) * 100);
+}
+
+// Static for now (today's date, week number, weekly progress); the natural
+// place to add pulled-in data later (e.g. weather) without disturbing the
+// Training tile.
+function renderInfoCard(week) {
+  const card = document.createElement('div');
+  card.className = 'card info-card';
+
+  const today = new Date();
+  const dateLabel = today.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+  const [year, weekNum] = currentWeekKey().split('-W');
+  const weekLabel = `Week ${parseInt(weekNum, 10)} · ${year}`;
+
+  card.innerHTML = `
+    <div class="info-grid">
+      <div class="info-item">
+        <span class="info-value">${dateLabel}</span>
+        <span class="info-label">Today</span>
+      </div>
+      <div class="info-item">
+        <span class="info-value">${weekLabel}</span>
+        <span class="info-label">Week</span>
+      </div>
+    </div>
+    <div class="info-progress">Weekly Progress: ${weeklyProgressPercent(week)}%</div>
+  `;
+  return card;
+}
+
 function renderWeekView() {
   const week = getOrCreateCurrentWeek();
   const app = document.getElementById('app');
@@ -201,6 +261,8 @@ function renderWeekView() {
   summary.className = 'week-summary';
   summary.textContent = `Week of ${fmtDate(week.startDate)}`;
   wrap.appendChild(summary);
+
+  wrap.appendChild(renderInfoCard(week));
 
   const card = document.createElement('div');
   card.className = 'card';
@@ -267,20 +329,28 @@ function renderWeekView() {
 
   const restCard = document.createElement('div');
   restCard.className = 'card';
-  restCard.innerHTML = `
-    <div class="switch-row">
-      <div class="row-label">
-        <span class="row-title">Full Rest Day</span>
-        <span class="row-unit">1 day a week</span>
-      </div>
-      <button class="switch ${week.restDay ? 'on' : ''}"></button>
-    </div>
-  `;
-  restCard.querySelector('.switch').addEventListener('click', () => {
-    week.restDay = week.restDay ? 0 : 1;
-    queueSave(week.weekKey);
-    renderWeekView();
+  const restTitle = document.createElement('h2');
+  const restDaysCount = REST_DAYS.filter(d => week[d.key]).length;
+  restTitle.textContent = `Full Rest Day, min 1×/wk (${restDaysCount}/7)`;
+  restCard.appendChild(restTitle);
+
+  const restGrid = document.createElement('div');
+  restGrid.className = 'steps-grid';
+  REST_DAYS.forEach(d => {
+    const cell = document.createElement('div');
+    cell.className = 'step-day';
+    cell.innerHTML = `
+      <span class="step-day-label">${d.label}</span>
+      <button class="step-toggle ${week[d.key] ? 'done' : ''}" aria-label="${d.key}"></button>
+    `;
+    cell.querySelector('.step-toggle').addEventListener('click', () => {
+      week[d.key] = week[d.key] ? 0 : 1;
+      queueSave(week.weekKey);
+      renderWeekView();
+    });
+    restGrid.appendChild(cell);
   });
+  restCard.appendChild(restGrid);
   wrap.appendChild(restCard);
 
   app.replaceChildren(wrap);
@@ -312,6 +382,7 @@ function renderHistoryView() {
 
     const dots = CATEGORIES.map(cat => `<span class="dot ${meetsMin(cat, week) ? 'met' : ''}"></span>`).join('');
     const stepsDone = STEP_DAYS.filter(d => week[d.key]).length;
+    const restDaysDone = REST_DAYS.filter(d => week[d.key]).length;
 
     card.innerHTML = `
       <div class="history-card-header">
@@ -325,7 +396,7 @@ function renderHistoryView() {
       <div class="history-detail">
         ${CATEGORIES.map(cat => `<div class="detail-line"><span>${cat.label}</span><b>${week[cat.key]}${cat.min ? ' / min ' + cat.min : ''}</b></div>`).join('')}
         <div class="detail-line"><span>Daily Steps</span><b>${stepsDone}/7</b></div>
-        <div class="detail-line"><span>Rest Day</span><b>${week.restDay ? 'Yes' : 'No'}</b></div>
+        <div class="detail-line"><span>Rest Days</span><b>${restDaysDone}/7 / min 1</b></div>
       </div>
     `;
     card.addEventListener('click', () => {
@@ -375,7 +446,7 @@ function renderMonthlyView() {
       months[mKey].totals.stepsTotal += 1;
       if (w[d.key]) months[mKey].totals.stepsMet += 1;
     });
-    if (w.restDay) months[mKey].totals.restDays += 1;
+    REST_DAYS.forEach(d => { if (w[d.key]) months[mKey].totals.restDays += 1; });
   });
 
   const wrap = document.createElement('div');
