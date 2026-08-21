@@ -1,4 +1,4 @@
-# baeck-fitness-tracker v1.0
+# baeck-fitness-tracker v1.1
 
 A weekly workout tracker PWA, built for free: Google Sheet (database) → Vercel serverless
 function (backend API) → Vercel static hosting (installable frontend). No subscriptions,
@@ -22,8 +22,10 @@ for quarterly review.
 Version is `package.json`'s `version` field (`MAJOR.MINOR.0`), also shown in the page
 title and header. Every commit+push bumps `MINOR` by one (`v1.0` → `v1.1` → `v1.2` …);
 `MAJOR` only changes on explicit instruction (and resets `MINOR` to `0`). When bumping,
-update the version in three places: `package.json`, the `<title>` and both `<h1>`s in
-[index.html](index.html), and the heading here in the README.
+update the version in four places: `package.json`; the `<title>` and both `<h1>`s in
+[index.html](index.html); the heading here in the README; and `CACHE_NAME` in
+[sw.js](sw.js) — that last one forces every browser's service worker to pick up the new
+build instead of silently continuing to run stale cached JS (see the note below).
 
 Stack:
 - **Frontend**: plain HTML/CSS/JS, no build step, using
@@ -128,6 +130,16 @@ offline-capable UI shell.
   via `localStorage`), but needs network at least once to pull existing history.
 - The service worker never caches `/api/*` responses, so workout data always comes from
   the network when it's reachable — only the static app shell is cached for offline use.
+- The app shell cache is stale-while-revalidate: a load always renders the previously
+  cached `app.js`/`index.html`/`style.css` first, refreshing the cache in the background
+  for the *next* load. Browsers only replace their installed service worker when
+  `sw.js`'s bytes change, so an app-shell fix that doesn't also bump `CACHE_NAME` in
+  `sw.js` will silently keep serving the old, un-fixed JS to already-installed clients
+  indefinitely — see [Versioning](#versioning).
+- No sync is real-time or live: each device only pulls fresh data from the Sheet on load
+  or on regaining connectivity (the `online` event), and merges per-week by `updatedAt`
+  (last write wins). If two devices are both open at once, one won't see the other's edit
+  until it reloads or cycles offline→online.
 - Tracking is per Google account: each signed-in email only ever sees and edits its own
   rows in `WeeklyLogs`, so two people logging the same week keep separate history. The
   local (offline) cache is also namespaced per email, so signing in as a different
