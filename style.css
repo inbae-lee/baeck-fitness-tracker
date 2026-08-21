@@ -155,15 +155,6 @@ html, body {
   letter-spacing: 0.04em;
 }
 
-.row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--border);
-}
-.row:last-child { border-bottom: none; }
-
 .row-label {
   display: flex;
   flex-direction: column;
@@ -173,77 +164,98 @@ html, body {
 .row-title { font-size: 15px; font-weight: 600; }
 .row-unit { font-size: 12px; color: var(--muted); }
 
-.row-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+/* One dense grid for every tracked row (workout categories, daily steps,
+   full rest day): label column, 7 day-toggle columns, a total column.
+   Cells are appended row-major in JS and rely on this fixed 9-column
+   template to wrap into rows. */
+.table-card {
+  padding: 14px 10px;
 }
 
-.row-control {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.btn-step {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  font-size: 18px;
-  line-height: 1;
-  cursor: pointer;
-  color: var(--ink);
-}
-.btn-step:active { background: var(--accent-soft); }
-
-.count-value {
-  min-width: 22px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-  font-weight: 700;
-}
-
-.row-flag {
-  min-width: 44px;
-  text-align: right;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--good);
-}
-
-.steps-grid {
+.grid-table {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 8px;
+  grid-template-columns: minmax(56px, 82px) repeat(7, minmax(0, 1fr)) 26px;
+  grid-auto-rows: minmax(38px, auto);
+  gap: 4px 3px;
 }
 
-.step-day {
+.gt-cell {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
+  min-width: 0;
 }
 
-.step-day-label {
+.gt-head {
   font-size: 11px;
+  font-weight: 700;
   color: var(--muted);
-  font-weight: 600;
 }
 
-.step-toggle {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
+.gt-label {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  text-align: left;
+  gap: 1px;
+  padding-right: 2px;
+}
+
+.gt-title {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.gt-unit {
+  font-size: 9.5px;
+  color: var(--muted);
+  line-height: 1.15;
+}
+
+.gt-label:not(.gt-head), .gt-total:not(.gt-head) {
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+  margin-top: 2px;
+}
+
+.gt-toggle {
+  align-self: center;
+  width: 100%;
+  max-width: 34px;
+  height: 30px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--bg);
   cursor: pointer;
+  padding: 0;
+  margin: 0 auto;
 }
+.gt-toggle:active { background: var(--accent-soft); }
 
-.step-toggle.done {
+.gt-toggle.done {
   background: var(--accent);
   border-color: var(--accent);
+}
+
+.gt-total {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.gt-total.met { color: var(--good); }
+
+@media (max-width: 380px) {
+  .grid-table {
+    grid-template-columns: minmax(46px, 62px) repeat(7, minmax(0, 1fr)) 22px;
+    grid-auto-rows: minmax(34px, auto);
+    gap: 4px 2px;
+  }
+  .gt-toggle { max-width: 28px; height: 26px; }
+  .gt-title { font-size: 11px; }
+  .gt-unit { font-size: 9px; }
 }
 
 .switch-row {

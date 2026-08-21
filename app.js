@@ -8,6 +8,18 @@ const CATEGORIES = [
   { key: 'golf', label: 'Golf Practice', unit: '30min+', min: 0 },
 ];
 
+const DAY_SUFFIXES = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+// Every row of the This Week table — workout categories plus the
+// daily-steps and full-rest-day rows — sharing one day-selectable grid
+// instead of categories using a separate +/- counter.
+const TRACKED_ROWS = [
+  ...CATEGORIES,
+  { key: 'steps', label: 'Daily Steps', unit: '8,000+ steps', min: 0 },
+  { key: 'rest', label: 'Full Rest Day', unit: '', min: 1 },
+];
+
 const STEP_DAYS = [
   { key: 'steps_mon', label: 'M' },
   { key: 'steps_tue', label: 'T' },
@@ -65,9 +77,9 @@ let currentEmail = null;
 
 function emptyWeek(weekKey, startDate) {
   const w = { weekKey, startDate: startDate.toISOString().slice(0, 10) };
-  CATEGORIES.forEach(c => { w[c.key] = 0; });
-  STEP_DAYS.forEach(d => { w[d.key] = 0; });
-  REST_DAYS.forEach(d => { w[d.key] = 0; });
+  TRACKED_ROWS.forEach(row => {
+    DAY_SUFFIXES.forEach(sfx => { w[`${row.key}_${sfx}`] = 0; });
+  });
   return w;
 }
 
@@ -225,8 +237,26 @@ async function pushWeek(weekKey, version) {
 
 // ---------- render: This Week ----------
 
-function meetsMin(cat, week) {
-  return cat.min > 0 && week[cat.key] >= cat.min;
+// Sums a row's 7 day cells. Weeks logged before categories became
+// day-selectable only have a single running-count field under row.key (e.g.
+// week.uphillWalk = 3) — fall back to that when no day data exists yet, so
+// history/monthly for those older weeks keeps showing the right total.
+function rowTotal(row, week) {
+  let sum = 0;
+  let hasDayData = false;
+  DAY_SUFFIXES.forEach(sfx => {
+    const v = week[`${row.key}_${sfx}`];
+    if (v !== undefined && v !== null && v !== '') {
+      hasDayData = true;
+      sum += Number(v) || 0;
+    }
+  });
+  if (hasDayData) return sum;
+  return Number(week[row.key]) || 0;
+}
+
+function meetsMin(row, week) {
+  return row.min > 0 && rowTotal(row, week) >= row.min;
 }
 
 // Each category/day/toggle is worth points if its threshold is met; percent
@@ -239,7 +269,7 @@ function weeklyProgressPercent(week) {
   CATEGORIES.forEach(cat => {
     const threshold = Math.max(cat.min, 1);
     possible += threshold;
-    if (week[cat.key] >= threshold) earned += threshold;
+    if (rowTotal(cat, week) >= threshold) earned += threshold;
   });
   STEP_DAYS.forEach(d => {
     possible += 1;
@@ -285,102 +315,64 @@ function renderWeekView() {
   wrap.appendChild(summary);
 
   wrap.appendChild(renderInfoCard(week));
+  wrap.appendChild(renderTrainingTable(week));
 
+  app.replaceChildren(wrap);
+}
+
+function toggleDay(rowKey, dayIdx) {
+  const w = getOrCreateCurrentWeek();
+  const key = `${rowKey}_${DAY_SUFFIXES[dayIdx]}`;
+  w[key] = w[key] ? 0 : 1;
+  queueSave(w.weekKey);
+  renderWeekView();
+}
+
+// One grid for every tracked row (workout categories, daily steps, full
+// rest day): 1st column = row label, next 7 = tap-to-toggle days, last =
+// this week's count. Cells are appended in row-major order and rely on
+// grid-table's fixed 9-column template to wrap into rows — see .grid-table.
+function renderTrainingTable(week) {
   const card = document.createElement('div');
-  card.className = 'card';
+  card.className = 'card table-card';
   const h2 = document.createElement('h2');
   h2.textContent = 'Training';
   card.appendChild(h2);
 
-  CATEGORIES.forEach(cat => {
-    const row = document.createElement('div');
-    row.className = 'row';
-    row.innerHTML = `
-      <div class="row-label">
-        <span class="row-title">${cat.label}</span>
-        <span class="row-unit">${cat.unit}</span>
-      </div>
-      <div class="row-right">
-        <div class="row-flag">${meetsMin(cat, week) ? '✓ min' : ''}</div>
-        <div class="row-control">
-          <button class="btn-step minus" aria-label="Decrease">−</button>
-          <span class="count-value">${week[cat.key]}</span>
-          <button class="btn-step plus" aria-label="Increase">+</button>
-        </div>
-      </div>
-    `;
-    row.querySelector('.plus').addEventListener('click', () => {
-      const w = getOrCreateCurrentWeek();
-      w[cat.key]++;
-      queueSave(w.weekKey);
-      renderWeekView();
+  const table = document.createElement('div');
+  table.className = 'grid-table';
+
+  table.appendChild(elFromHTML('<div class="gt-cell gt-head gt-label"></div>'));
+  DAY_LABELS.forEach(l => table.appendChild(elFromHTML(`<div class="gt-cell gt-head">${l}</div>`)));
+  table.appendChild(elFromHTML('<div class="gt-cell gt-head gt-total">Tot</div>'));
+
+  TRACKED_ROWS.forEach(row => {
+    const total = rowTotal(row, week);
+    const met = meetsMin(row, week);
+
+    const labelCell = document.createElement('div');
+    labelCell.className = 'gt-cell gt-label';
+    labelCell.innerHTML = `<span class="gt-title">${row.label}</span>${row.unit ? `<span class="gt-unit">${row.unit}</span>` : ''}`;
+    table.appendChild(labelCell);
+
+    DAY_SUFFIXES.forEach((sfx, i) => {
+      const key = `${row.key}_${sfx}`;
+      const btn = document.createElement('button');
+      btn.className = 'gt-cell gt-toggle' + (week[key] ? ' done' : '');
+      btn.setAttribute('aria-label', `${row.label} ${DAY_LABELS[i]}`);
+      btn.setAttribute('aria-pressed', week[key] ? 'true' : 'false');
+      btn.addEventListener('click', () => toggleDay(row.key, i));
+      table.appendChild(btn);
     });
-    row.querySelector('.minus').addEventListener('click', () => {
-      const w = getOrCreateCurrentWeek();
-      if (w[cat.key] === 0) return;
-      w[cat.key]--;
-      queueSave(w.weekKey);
-      renderWeekView();
-    });
-    card.appendChild(row);
+
+    const totalCell = document.createElement('div');
+    totalCell.className = 'gt-cell gt-total' + (met ? ' met' : '');
+    totalCell.textContent = total;
+    table.appendChild(totalCell);
   });
-  wrap.appendChild(card);
 
-  const stepsCard = document.createElement('div');
-  stepsCard.className = 'card';
-  const stepsTitle = document.createElement('h2');
-  const stepsDone = STEP_DAYS.filter(d => week[d.key]).length;
-  stepsTitle.textContent = `Daily Steps 8,000+ (${stepsDone}/7)`;
-  stepsCard.appendChild(stepsTitle);
-
-  const grid = document.createElement('div');
-  grid.className = 'steps-grid';
-  STEP_DAYS.forEach(d => {
-    const cell = document.createElement('div');
-    cell.className = 'step-day';
-    cell.innerHTML = `
-      <span class="step-day-label">${d.label}</span>
-      <button class="step-toggle ${week[d.key] ? 'done' : ''}" aria-label="${d.key}"></button>
-    `;
-    cell.querySelector('.step-toggle').addEventListener('click', () => {
-      const w = getOrCreateCurrentWeek();
-      w[d.key] = w[d.key] ? 0 : 1;
-      queueSave(w.weekKey);
-      renderWeekView();
-    });
-    grid.appendChild(cell);
-  });
-  stepsCard.appendChild(grid);
-  wrap.appendChild(stepsCard);
-
-  const restCard = document.createElement('div');
-  restCard.className = 'card';
-  const restTitle = document.createElement('h2');
-  const restDaysCount = REST_DAYS.filter(d => week[d.key]).length;
-  restTitle.textContent = `Full Rest Day, min 1×/wk (${restDaysCount}/7)`;
-  restCard.appendChild(restTitle);
-
-  const restGrid = document.createElement('div');
-  restGrid.className = 'steps-grid';
-  REST_DAYS.forEach(d => {
-    const cell = document.createElement('div');
-    cell.className = 'step-day';
-    cell.innerHTML = `
-      <span class="step-day-label">${d.label}</span>
-      <button class="step-toggle ${week[d.key] ? 'done' : ''}" aria-label="${d.key}"></button>
-    `;
-    cell.querySelector('.step-toggle').addEventListener('click', () => {
-      const w = getOrCreateCurrentWeek();
-      w[d.key] = w[d.key] ? 0 : 1;
-      queueSave(w.weekKey);
-      renderWeekView();
-    });
-    restGrid.appendChild(cell);
-  });
-  restCard.appendChild(restGrid);
-  wrap.appendChild(restCard);
-
-  app.replaceChildren(wrap);
+  card.appendChild(table);
+  return card;
 }
 
 // ---------- render: History ----------
@@ -421,7 +413,7 @@ function renderHistoryView() {
       </div>
       <div class="status-dots">${dots}</div>
       <div class="history-detail">
-        ${CATEGORIES.map(cat => `<div class="detail-line"><span>${cat.label}</span><b>${week[cat.key]}${cat.min ? ' / min ' + cat.min : ''}</b></div>`).join('')}
+        ${CATEGORIES.map(cat => `<div class="detail-line"><span>${cat.label}</span><b>${rowTotal(cat, week)}${cat.min ? ' / min ' + cat.min : ''}</b></div>`).join('')}
         <div class="detail-line"><span>Daily Steps</span><b>${stepsDone}/7</b></div>
         <div class="detail-line"><span>Rest Days</span><b>${restDaysDone}/7 / min 1</b></div>
       </div>
@@ -468,7 +460,7 @@ function renderMonthlyView() {
       months[mKey].totals.restDays = 0;
     }
     months[mKey].weeks.push(w);
-    CATEGORIES.forEach(c => { months[mKey].totals[c.key] += w[c.key]; });
+    CATEGORIES.forEach(c => { months[mKey].totals[c.key] += rowTotal(c, w); });
     STEP_DAYS.forEach(d => {
       months[mKey].totals.stepsTotal += 1;
       if (w[d.key]) months[mKey].totals.stepsMet += 1;

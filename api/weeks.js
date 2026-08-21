@@ -15,6 +15,9 @@ const SERVICE_ACCOUNT_PRIVATE_KEY = (process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_
 const ALLOWED_EMAILS = (process.env.ALLOWED_EMAILS || '').split(',').map(s => s.trim()).filter(Boolean);
 
 const SHEET_NAME = 'WeeklyLogs';
+// New columns are always appended at the end, never inserted or reordered —
+// COLUMNS positions map directly to sheet columns, so existing rows written
+// under an older layout would misalign if anything earlier moved.
 const COLUMNS = [
   'weekKey', 'email', 'startDate',
   'uphillWalk', 'slowJog', 'strength',
@@ -22,10 +25,32 @@ const COLUMNS = [
   'padel', 'golf',
   'rest_mon', 'rest_tue', 'rest_wed', 'rest_thu', 'rest_fri', 'rest_sat', 'rest_sun',
   'updatedAt',
+  // Workout categories became day-selectable (like steps/rest already were)
+  // instead of a single running count — old 'uphillWalk'/'slowJog'/etc.
+  // columns above are kept for back-compat reads of older rows.
+  'uphillWalk_mon', 'uphillWalk_tue', 'uphillWalk_wed', 'uphillWalk_thu', 'uphillWalk_fri', 'uphillWalk_sat', 'uphillWalk_sun',
+  'slowJog_mon', 'slowJog_tue', 'slowJog_wed', 'slowJog_thu', 'slowJog_fri', 'slowJog_sat', 'slowJog_sun',
+  'strength_mon', 'strength_tue', 'strength_wed', 'strength_thu', 'strength_fri', 'strength_sat', 'strength_sun',
+  'padel_mon', 'padel_tue', 'padel_wed', 'padel_thu', 'padel_fri', 'padel_sat', 'padel_sun',
+  'golf_mon', 'golf_tue', 'golf_wed', 'golf_thu', 'golf_fri', 'golf_sat', 'golf_sun',
 ];
 const WEEK_KEY_COL = COLUMNS.indexOf('weekKey');
 const EMAIL_COL = COLUMNS.indexOf('email');
-const LAST_COL_LETTER = String.fromCharCode('A'.charCodeAt(0) + COLUMNS.length - 1); // 'W' for 23 columns
+
+// Base-26 spreadsheet column letters (A, B, ... Z, AA, AB, ...) — the old
+// single-letter formula only worked up to column 26.
+function columnLetter(index) {
+  let n = index + 1;
+  let letters = '';
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    letters = String.fromCharCode('A'.charCodeAt(0) + rem) + letters;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letters;
+}
+
+const LAST_COL_LETTER = columnLetter(COLUMNS.length - 1);
 const FULL_RANGE = `${SHEET_NAME}!A:${LAST_COL_LETTER}`;
 
 const oauthClient = new OAuth2Client(CLIENT_ID);
