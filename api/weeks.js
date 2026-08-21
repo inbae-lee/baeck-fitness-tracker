@@ -83,6 +83,25 @@ function rowToObject(row) {
   return obj;
 }
 
+/**
+ * Writes the header row if the sheet is completely empty (e.g. right after
+ * clearing it out) — otherwise the first real data row would silently get
+ * treated as the header by the rows.slice(1) below. Only acts on a fully
+ * empty sheet; a sheet with an existing header is left alone rather than
+ * risking misaligning any rows already under it.
+ */
+async function ensureHeaderRow(token, rows) {
+  if (rows.length > 0) return rows;
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(SHEET_NAME + '!A1')}?valueInputOption=RAW`;
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ values: [COLUMNS] }),
+  });
+  if (!res.ok) throw new Error(`Sheets API header write responded ${res.status}: ${await res.text()}`);
+  return [COLUMNS];
+}
+
 async function handleGet(req, res) {
   const auth = await verifyIdToken(req.query.id_token);
   if (!auth.email) return res.status(200).json(Object.assign({ ok: false }, auth));
@@ -108,7 +127,7 @@ async function handlePost(req, res) {
   const rowValues = COLUMNS.map(key => (week[key] !== undefined ? week[key] : ''));
 
   const token = await sheetsAccessToken();
-  const rows = await sheetsGetRows(token);
+  const rows = await ensureHeaderRow(token, await sheetsGetRows(token));
 
   let rowIndex = -1;
   for (let i = 1; i < rows.length; i++) {
