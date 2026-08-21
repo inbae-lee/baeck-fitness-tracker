@@ -339,6 +339,20 @@ html, body {
 
 .auth-error {
   margin-top: 14px;
-  color: #dc2626;
+  color: var(--muted);
   font-size: 13px;
 }
+.auth-error.is-error { color: #dc2626; }
+
+.auth-retry-btn {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.auth-retry-btn:hover { border-color: var(--accent); color: var(--accent); }

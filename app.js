@@ -405,6 +405,7 @@ function initTabs() {
     render();
   });
   document.getElementById('signOutBtn').addEventListener('click', () => signOut(''));
+  document.getElementById('authRetryBtn').addEventListener('click', initGoogleSignIn);
 }
 
 // ---------- auth ----------
@@ -412,10 +413,12 @@ function initTabs() {
 const ID_TOKEN_KEY = 'laplog:idToken';
 let idToken = null;
 
-function showAuthGate(message) {
+function showAuthGate(message, isError) {
   document.getElementById('authGate').hidden = false;
   document.getElementById('appRoot').hidden = true;
-  document.getElementById('authError').textContent = message || '';
+  const err = document.getElementById('authError');
+  err.textContent = message || '';
+  err.classList.toggle('is-error', !!isError);
 }
 
 function showApp() {
@@ -429,7 +432,8 @@ function signOut(message) {
   if (window.google && google.accounts && google.accounts.id) {
     google.accounts.id.disableAutoSelect();
   }
-  showAuthGate(message);
+  document.getElementById('authRetryBtn').hidden = true;
+  showAuthGate(message, !!message);
 }
 
 async function afterSignIn() {
@@ -444,26 +448,60 @@ function handleCredentialResponse(response) {
   afterSignIn();
 }
 
-function initGoogleSignIn() {
+function waitForGoogleLibrary(timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    (function poll() {
+      if (window.google && window.google.accounts && window.google.accounts.id) return resolve();
+      if (Date.now() - start > timeoutMs) return reject(new Error('timed out loading accounts.google.com/gsi/client'));
+      setTimeout(poll, 200);
+    })();
+  });
+}
+
+async function initGoogleSignIn() {
   if (!APP_CONFIG.CLIENT_ID || APP_CONFIG.CLIENT_ID.startsWith('PASTE_')) {
-    showAuthGate('Google sign-in is not configured yet (missing CLIENT_ID in config.js).');
+    showAuthGate('Google sign-in is not configured yet (missing CLIENT_ID in config.js).', true);
     return;
   }
-  google.accounts.id.initialize({
-    client_id: APP_CONFIG.CLIENT_ID,
-    callback: handleCredentialResponse,
-  });
-  google.accounts.id.renderButton(
-    document.getElementById('googleSignInButton'),
-    { theme: 'outline', size: 'large', text: 'signin_with' }
-  );
+
+  const retryBtn = document.getElementById('authRetryBtn');
+  retryBtn.hidden = true;
+  showAuthGate('Loading Google Sign-In…', false);
+
+  try {
+    await waitForGoogleLibrary(8000);
+  } catch (e) {
+    showAuthGate("Couldn't load Google Sign-In — check your connection, or an ad/privacy blocker may be blocking accounts.google.com.", true);
+    retryBtn.hidden = false;
+    return;
+  }
+
+  try {
+    google.accounts.id.initialize({
+      client_id: APP_CONFIG.CLIENT_ID,
+      callback: handleCredentialResponse,
+    });
+    google.accounts.id.renderButton(
+      document.getElementById('googleSignInButton'),
+      { theme: 'outline', size: 'large', text: 'signin_with' }
+    );
+  } catch (e) {
+    showAuthGate('Google Sign-In failed to start: ' + e.message, true);
+    retryBtn.hidden = false;
+    return;
+  }
+
+  showAuthGate('', false);
 
   const saved = sessionStorage.getItem(ID_TOKEN_KEY);
   if (saved) {
     idToken = saved;
     afterSignIn();
   } else {
-    google.accounts.id.prompt();
+    try {
+      google.accounts.id.prompt(); // One Tap; best-effort, the rendered button always works even if this silently declines
+    } catch (e) { /* ignore */ }
   }
 }
 
