@@ -40,32 +40,41 @@ function rowToObject_(row) {
 }
 
 /**
- * Verifies a Google ID token against Google's tokeninfo endpoint and returns
- * the signed-in email if it's valid, unexpired, for our client, and on the
- * allowlist. Returns null otherwise.
+ * Verifies a Google ID token against Google's tokeninfo endpoint. Returns
+ * { email } on success, or { error, ...detail } describing exactly why it
+ * was rejected — useful for debugging misconfigured client IDs/allowlists,
+ * and not sensitive to expose (worst case it confirms a client ID mismatch).
  */
 function verifyIdToken_(idToken) {
-  if (!idToken) return null;
+  if (!idToken) return { error: 'missing_token' };
   try {
     const res = UrlFetchApp.fetch(
       'https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken),
       { muteHttpExceptions: true }
     );
-    if (res.getResponseCode() !== 200) return null;
+    if (res.getResponseCode() !== 200) {
+      return { error: 'invalid_token', responseCode: res.getResponseCode(), body: res.getContentText() };
+    }
     const payload = JSON.parse(res.getContentText());
-    if (payload.aud !== GOOGLE_CLIENT_ID) return null;
-    if (payload.email_verified !== 'true' && payload.email_verified !== true) return null;
-    if (ALLOWED_EMAILS.indexOf(payload.email) === -1) return null;
-    return payload.email;
+    if (payload.aud !== GOOGLE_CLIENT_ID) {
+      return { error: 'client_id_mismatch', tokenAud: payload.aud, expected: GOOGLE_CLIENT_ID };
+    }
+    if (payload.email_verified !== 'true' && payload.email_verified !== true) {
+      return { error: 'email_not_verified', email: payload.email };
+    }
+    if (ALLOWED_EMAILS.indexOf(payload.email) === -1) {
+      return { error: 'email_not_allowlisted', email: payload.email };
+    }
+    return { email: payload.email };
   } catch (err) {
-    return null;
+    return { error: 'exception', message: String(err) };
   }
 }
 
 function doGet(e) {
-  const email = verifyIdToken_(e.parameter.id_token);
-  if (!email) {
-    return json_({ ok: false, error: 'unauthorized' });
+  const auth = verifyIdToken_(e.parameter.id_token);
+  if (!auth.email) {
+    return json_(Object.assign({ ok: false }, auth));
   }
   const sheet = getSheet_();
   const values = sheet.getDataRange().getValues();
@@ -82,9 +91,9 @@ function doPost(e) {
     return json_({ ok: false, error: 'bad_json' });
   }
 
-  const email = verifyIdToken_(body.id_token);
-  if (!email) {
-    return json_({ ok: false, error: 'unauthorized' });
+  const auth = verifyIdToken_(body.id_token);
+  if (!auth.email) {
+    return json_(Object.assign({ ok: false }, auth));
   }
 
   const week = body.week;

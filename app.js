@@ -95,6 +95,27 @@ function setSyncStatus(text, cls) {
   el.className = 'sync-status' + (cls ? ' ' + cls : '');
 }
 
+const AUTH_ERRORS = new Set([
+  'missing_token', 'invalid_token', 'client_id_mismatch', 'email_not_verified', 'email_not_allowlisted', 'exception',
+]);
+
+function authErrorMessage(data) {
+  switch (data.error) {
+    case 'client_id_mismatch':
+      return `Client ID mismatch — frontend config.js and Apps Script's GOOGLE_CLIENT_ID don't match (token was issued for ${data.tokenAud || 'unknown'}).`;
+    case 'email_not_allowlisted':
+      return `${data.email || 'This account'} is not in ALLOWED_EMAILS in Code.gs.`;
+    case 'email_not_verified':
+      return `${data.email || 'This account'}'s email isn't verified by Google.`;
+    case 'invalid_token':
+      return 'Google rejected the sign-in token — try signing in again.';
+    case 'missing_token':
+      return 'No sign-in token was sent — try signing in again.';
+    default:
+      return 'This Google account is not authorized for LapLog.';
+  }
+}
+
 async function fetchFromServer() {
   if (!APP_CONFIG.API_URL || APP_CONFIG.API_URL.startsWith('PASTE_') || !idToken) {
     setSyncStatus('offline (not signed in)', 'error');
@@ -106,7 +127,7 @@ async function fetchFromServer() {
     const res = await fetch(url);
     const data = await res.json();
     if (!data.ok) {
-      if (data.error === 'unauthorized') return signOut('This Google account is not authorized for LapLog.');
+      if (AUTH_ERRORS.has(data.error)) return signOut(authErrorMessage(data));
       throw new Error(data.error || 'fetch_failed');
     }
     data.weeks.forEach(w => {
@@ -142,7 +163,7 @@ async function pushWeek(weekKey) {
     });
     const data = await res.json();
     if (!data.ok) {
-      if (data.error === 'unauthorized') return signOut('This Google account is not authorized for LapLog.');
+      if (AUTH_ERRORS.has(data.error)) return signOut(authErrorMessage(data));
       throw new Error(data.error || 'save_failed');
     }
     weeks[weekKey] = data.week;
