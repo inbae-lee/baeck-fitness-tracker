@@ -16,13 +16,16 @@ const ALLOWED_EMAILS = (process.env.ALLOWED_EMAILS || '').split(',').map(s => s.
 
 const SHEET_NAME = 'WeeklyLogs';
 const COLUMNS = [
-  'weekKey', 'startDate',
+  'weekKey', 'email', 'startDate',
   'uphillWalk', 'slowJog', 'strength',
   'steps_mon', 'steps_tue', 'steps_wed', 'steps_thu', 'steps_fri', 'steps_sat', 'steps_sun',
   'padel', 'golf', 'restDay',
   'updatedAt',
 ];
-const FULL_RANGE = `${SHEET_NAME}!A:P`;
+const WEEK_KEY_COL = COLUMNS.indexOf('weekKey');
+const EMAIL_COL = COLUMNS.indexOf('email');
+const LAST_COL_LETTER = String.fromCharCode('A'.charCodeAt(0) + COLUMNS.length - 1); // 'Q' for 17 columns
+const FULL_RANGE = `${SHEET_NAME}!A:${LAST_COL_LETTER}`;
 
 const oauthClient = new OAuth2Client(CLIENT_ID);
 
@@ -86,7 +89,9 @@ async function handleGet(req, res) {
 
   const token = await sheetsAccessToken();
   const rows = await sheetsGetRows(token);
-  const weeks = rows.slice(1).filter(r => r[0]).map(rowToObject); // skip header, skip blanks
+  const weeks = rows.slice(1) // skip header
+    .filter(r => r[WEEK_KEY_COL] && r[EMAIL_COL] === auth.email) // only this user's rows
+    .map(rowToObject);
   return res.status(200).json({ ok: true, weeks });
 }
 
@@ -98,6 +103,7 @@ async function handlePost(req, res) {
   const week = body.week;
   if (!week || !week.weekKey) return res.status(200).json({ ok: false, error: 'missing_weekKey' });
 
+  week.email = auth.email; // server-verified owner, not whatever the client sent
   week.updatedAt = new Date().toISOString();
   const rowValues = COLUMNS.map(key => (week[key] !== undefined ? week[key] : ''));
 
@@ -106,7 +112,10 @@ async function handlePost(req, res) {
 
   let rowIndex = -1;
   for (let i = 1; i < rows.length; i++) {
-    if (rows[i][0] === week.weekKey) { rowIndex = i + 1; break; } // 1-indexed sheet row
+    if (rows[i][WEEK_KEY_COL] === week.weekKey && rows[i][EMAIL_COL] === auth.email) {
+      rowIndex = i + 1; // 1-indexed sheet row
+      break;
+    }
   }
 
   if (rowIndex === -1) {
@@ -118,7 +127,7 @@ async function handlePost(req, res) {
     });
     if (!appendRes.ok) throw new Error(`Sheets API append responded ${appendRes.status}: ${await appendRes.text()}`);
   } else {
-    const range = `${SHEET_NAME}!A${rowIndex}:P${rowIndex}`;
+    const range = `${SHEET_NAME}!A${rowIndex}:${LAST_COL_LETTER}${rowIndex}`;
     const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(range)}?valueInputOption=RAW`;
     const updateRes = await fetch(updateUrl, {
       method: 'PUT',

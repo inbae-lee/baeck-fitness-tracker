@@ -32,16 +32,33 @@ html, body {
   z-index: 10;
 }
 
+.topbar-left {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
 .topbar h1 {
   font-size: 22px;
   margin: 0;
   letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+.user-email {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .topbar-right {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-shrink: 0;
 }
 
 .sync-status {
@@ -131,6 +148,12 @@ html, body {
 
 .row-title { font-size: 15px; font-weight: 600; }
 .row-unit { font-size: 12px; color: var(--muted); }
+
+.row-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 
 .row-control {
   display: flex;

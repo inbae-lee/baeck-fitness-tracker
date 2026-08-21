@@ -1,6 +1,6 @@
 {
-  "name": "LapLog",
-  "short_name": "LapLog",
+  "name": "baeck-fitness-tracker",
+  "short_name": "baeck-fitness-tracker",
   "description": "Weekly workout tracker",
   "start_url": "./index.html",
   "scope": "./",

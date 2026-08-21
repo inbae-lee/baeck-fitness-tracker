@@ -1,4 +1,4 @@
-# LapLog
+# baeck-fitness-tracker
 
 A weekly workout tracker PWA, built for free: Google Sheet (database) → Vercel serverless
 function (backend API) → Vercel static hosting (installable frontend). No subscriptions,
@@ -64,8 +64,11 @@ Stack:
 4. **Create and share a Sheet**: make a new Google Sheet, add a tab named exactly
    `WeeklyLogs`, and give it this header row:
    ```
-   weekKey  startDate  uphillWalk  slowJog  strength  steps_mon  steps_tue  steps_wed  steps_thu  steps_fri  steps_sat  steps_sun  padel  golf  restDay  updatedAt
+   weekKey  email  startDate  uphillWalk  slowJog  strength  steps_mon  steps_tue  steps_wed  steps_thu  steps_fri  steps_sat  steps_sun  padel  golf  restDay  updatedAt
    ```
+   Each signed-in account gets its own row per week — `weekKey` alone isn't unique,
+   `(weekKey, email)` is. The `email` value is set by the backend from the verified ID
+   token, not by the client, so there's no way to write into someone else's rows.
    Then share the Sheet with the service account's `client_email` as **Editor**. Copy
    the Sheet ID from its URL (`https://docs.google.com/spreadsheets/d/<SHEET_ID>/edit`).
 
@@ -117,3 +120,11 @@ offline-capable UI shell.
   via `localStorage`), but needs network at least once to pull existing history.
 - The service worker never caches `/api/*` responses, so workout data always comes from
   the network when it's reachable — only the static app shell is cached for offline use.
+- Tracking is per Google account: each signed-in email only ever sees and edits its own
+  rows in `WeeklyLogs`, so two people logging the same week keep separate history. The
+  local (offline) cache is also namespaced per email, so signing in as a different
+  account on the same device won't show or overwrite the previous account's data.
+- If you already had rows in `WeeklyLogs` from before the `email` column existed, they
+  won't show up for anyone (no row is anyone's data until it has an owner) — fill in the
+  right email by hand for any rows you want to keep, or just delete them if they were
+  test data.

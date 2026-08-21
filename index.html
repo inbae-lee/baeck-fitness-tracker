@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>LapLog</title>
+<title>baeck-fitness-tracker</title>
 <meta name="theme-color" content="#4f46e5" />
 <link rel="manifest" href="manifest.json" />
 <link rel="icon" href="icon-192.png" />
@@ -17,7 +17,7 @@
 
 <div id="authGate" class="auth-gate">
   <div class="auth-card">
-    <h1>LapLog</h1>
+    <h1>baeck-fitness-tracker</h1>
     <p>Sign in with an authorized Google account to continue.</p>
     <div id="googleSignInButton"></div>
     <div id="authError" class="auth-error"></div>
@@ -27,7 +27,10 @@
 
 <div id="appRoot" class="app-root" hidden>
   <header class="topbar">
-    <h1>LapLog</h1>
+    <div class="topbar-left">
+      <h1>baeck-fitness-tracker</h1>
+      <span id="userEmail" class="user-email"></span>
+    </div>
     <div class="topbar-right">
       <span id="syncStatus" class="sync-status" title="Sync status"></span>
       <button id="signOutBtn" class="signout-btn" type="button">Sign out</button>

@@ -48,9 +48,10 @@ function fmtDate(iso) {
 
 // ---------- state ----------
 
-let weeks = {}; // weekKey -> week object
+let weeks = {}; // weekKey -> week object, scoped to currentEmail
 let currentView = 'week';
 let openHistoryKey = null;
+let currentEmail = null;
 
 function emptyWeek(weekKey, startDate) {
   const w = { weekKey, startDate: startDate.toISOString().slice(0, 10) };
@@ -72,9 +73,17 @@ function getOrCreateCurrentWeek() {
   return weeks[key];
 }
 
+// Local cache is namespaced per signed-in email so two people sharing a
+// device (or a browser profile) never see or overwrite each other's data,
+// even before the server round-trip confirms who's signed in.
+function storageKeyForEmail(email) {
+  return `${STORAGE_KEY}:${email}`;
+}
+
 function loadLocal() {
+  if (!currentEmail) { weeks = {}; return; }
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKeyForEmail(currentEmail));
     weeks = raw ? JSON.parse(raw) : {};
   } catch (e) {
     weeks = {};
@@ -82,7 +91,8 @@ function loadLocal() {
 }
 
 function saveLocal() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(weeks));
+  if (!currentEmail) return;
+  localStorage.setItem(storageKeyForEmail(currentEmail), JSON.stringify(weeks));
 }
 
 // ---------- sync ----------
@@ -113,7 +123,7 @@ function authErrorMessage(data) {
     case 'missing_token':
       return 'No sign-in token was sent — try signing in again.';
     default:
-      return 'This Google account is not authorized for LapLog.';
+      return 'This Google account is not authorized for baeck-fitness-tracker.';
   }
 }
 
@@ -206,12 +216,14 @@ function renderWeekView() {
         <span class="row-title">${cat.label}</span>
         <span class="row-unit">${cat.unit}</span>
       </div>
-      <div class="row-control">
-        <button class="btn-step minus" aria-label="Decrease">−</button>
-        <span class="count-value">${week[cat.key]}</span>
-        <button class="btn-step plus" aria-label="Increase">+</button>
+      <div class="row-right">
+        <div class="row-flag">${meetsMin(cat, week) ? '✓ min' : ''}</div>
+        <div class="row-control">
+          <button class="btn-step minus" aria-label="Decrease">−</button>
+          <span class="count-value">${week[cat.key]}</span>
+          <button class="btn-step plus" aria-label="Increase">+</button>
+        </div>
       </div>
-      <div class="row-flag">${meetsMin(cat, week) ? '✓ min' : ''}</div>
     `;
     row.querySelector('.plus').addEventListener('click', () => {
       week[cat.key]++;
@@ -412,6 +424,19 @@ function initTabs() {
 const ID_TOKEN_KEY = 'laplog:idToken';
 let idToken = null;
 
+// Decodes the JWT payload without verifying it — server-side verification
+// (api/weeks.js) is what actually establishes identity; this is only used
+// to namespace the local cache under the right email before that round-trip
+// completes.
+function decodeJwtPayload(token) {
+  try {
+    const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(atob(base64));
+  } catch (e) {
+    return null;
+  }
+}
+
 function showAuthGate(message, isError) {
   document.getElementById('authGate').hidden = false;
   document.getElementById('appRoot').hidden = true;
@@ -423,11 +448,15 @@ function showAuthGate(message, isError) {
 function showApp() {
   document.getElementById('authGate').hidden = true;
   document.getElementById('appRoot').hidden = false;
+  document.getElementById('userEmail').textContent = currentEmail || '';
 }
 
 function signOut(message) {
   idToken = null;
+  currentEmail = null;
+  weeks = {};
   sessionStorage.removeItem(ID_TOKEN_KEY);
+  document.getElementById('userEmail').textContent = '';
   if (window.google && google.accounts && google.accounts.id) {
     google.accounts.id.disableAutoSelect();
   }
@@ -436,6 +465,11 @@ function signOut(message) {
 }
 
 async function afterSignIn() {
+  const payload = decodeJwtPayload(idToken);
+  currentEmail = payload && payload.email;
+  if (!currentEmail) return signOut('Could not read the signed-in account from the sign-in token — try again.');
+
+  loadLocal();
   showApp();
   render();
   await fetchFromServer();
@@ -506,7 +540,6 @@ async function initGoogleSignIn() {
 
 // ---------- init ----------
 
-loadLocal();
 initTabs();
 showAuthGate('');
 
