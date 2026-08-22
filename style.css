@@ -632,3 +632,82 @@ html, body {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 100;
+}
+
+.modal-card {
+  background: var(--card);
+  border-radius: 14px;
+  padding: 20px;
+  max-width: 420px;
+  width: 100%;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.modal-title {
+  margin: 0 0 10px;
+  font-size: 17px;
+}
+
+.modal-body {
+  font-size: 14px;
+  color: var(--ink);
+}
+.modal-body p { margin: 0; line-height: 1.5; }
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.modal-btn {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  background: var(--bg);
+  color: var(--ink);
+}
+.modal-btn-confirm { background: var(--accent); border-color: var(--accent); color: #fff; }
+.modal-btn-danger { background: #dc2626; border-color: #dc2626; color: #fff; }
+
+.diff-item + .diff-item { margin-top: 14px; }
+
+.diff-item-title {
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.diff-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  padding: 2px 0;
+}
+
+.diff-field-name {
+  min-width: 84px;
+  flex-shrink: 0;
+}
+
+.diff-before { text-decoration: line-through; }
+.diff-after { color: var(--ink); font-weight: 600; }
+.diff-arrow { color: var(--muted); }

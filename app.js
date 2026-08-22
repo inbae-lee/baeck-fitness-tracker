@@ -199,14 +199,11 @@ async function fetchCategories() {
   } catch (e) { /* offline: keep whatever loadLocalCategories() found */ }
 }
 
-// Debounced per-category push, mirroring queueSave/pushWeek for weeks.
-let pendingCategorySaves = {};
-function queueSaveCategory(id) {
-  saveLocalCategories();
-  clearTimeout(pendingCategorySaves[id]);
-  pendingCategorySaves[id] = setTimeout(() => pushCategory(id), 800);
-}
-
+// Field edits (label/unit/min) are staged in memory only — see
+// settingsSnapshot/attemptCloseSettings below — and only pushed to the
+// server once the user confirms via the "Save changes?" modal on exiting
+// Training Settings. pushCategory itself is also reused as the immediate,
+// unstaged save path for structural changes (create/archive).
 async function pushCategory(id) {
   if (!idToken) return;
   const cat = CATEGORIES.find(c => c.id === id);
@@ -254,7 +251,22 @@ async function addCategory() {
 // Soft-delete (archived, never row-removed) — past weeks still reference
 // this category's id in CategoryEntries, so the row has to stay for their
 // history to keep making sense; it just stops showing up going forward.
-async function archiveCategory(id) {
+// Gated behind a confirm modal since it's an immediate, non-staged write
+// (unlike label/unit/min edits, which wait for the Save-changes modal).
+function archiveCategory(id) {
+  const cat = CATEGORIES.find(c => c.id === id);
+  if (!cat) return;
+  showConfirmModal({
+    title: 'Remove workout type?',
+    bodyHtml: `<p>Remove <b>${escapeHtml(cat.label)}</b> from your training list? Past weeks keep their
+      logged history, but it won't show up going forward.</p>`,
+    confirmLabel: 'Remove',
+    danger: true,
+    onConfirm: () => doArchiveCategory(id),
+  });
+}
+
+async function doArchiveCategory(id) {
   if (!idToken) return;
   try {
     const res = await fetch(CATEGORIES_API_URL, {
@@ -268,6 +280,7 @@ async function archiveCategory(id) {
       throw new Error(data.error || 'save_failed');
     }
     CATEGORIES = CATEGORIES.filter(c => c.id !== id);
+    if (settingsSnapshot) settingsSnapshot = settingsSnapshot.filter(c => c.id !== id);
     saveLocalCategories();
     renderSettings();
     if (currentView === 'week') renderWeekView();
@@ -549,23 +562,95 @@ const GEAR_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor
 
 const MIN_PER_WEEK_MAX = 7;
 
+// Snapshot of CATEGORIES taken when Training Settings opens — label/unit/min
+// edits are staged against CATEGORIES in memory only (see
+// updateCategoryField/the stepper handler below) and diffed against this on
+// exit (attemptCloseSettings) rather than pushed to the server per
+// keystroke. null while settings is closed.
+let settingsSnapshot = null;
+
 function openSettings() {
   document.getElementById('settingsOverlay').hidden = false;
+  settingsSnapshot = CATEGORIES.map(c => ({ ...c }));
   renderSettings();
 }
 
 function closeSettings() {
   document.getElementById('settingsOverlay').hidden = true;
+  settingsSnapshot = null;
+}
+
+// Compares live CATEGORIES against settingsSnapshot, field by field, for
+// whatever's still present in both (an archived category is dropped from
+// both lists together in doArchiveCategory, so it never shows up here —
+// its removal already went through its own confirm modal).
+function categoryDiffs() {
+  const fieldDefs = [
+    { key: 'label', name: 'Name' },
+    { key: 'unit', name: 'Details' },
+    { key: 'min', name: 'Times/week' },
+  ];
+  const diffs = [];
+  CATEGORIES.forEach(cat => {
+    const before = settingsSnapshot && settingsSnapshot.find(s => s.id === cat.id);
+    if (!before) return; // added this session — already saved by addCategory, nothing to diff
+    const fields = fieldDefs
+      .filter(f => before[f.key] !== cat[f.key])
+      .map(f => ({ name: f.name, before: before[f.key], after: cat[f.key] }));
+    if (fields.length) diffs.push({ id: cat.id, label: cat.label, fields });
+  });
+  return diffs;
+}
+
+async function saveCategoryDiffs(diffs) {
+  saveLocalCategories();
+  await Promise.all(diffs.map(d => pushCategory(d.id)));
+}
+
+function discardCategoryEdits() {
+  CATEGORIES = settingsSnapshot.map(c => ({ ...c }));
+  saveLocalCategories();
+}
+
+// Back-button handler: if label/unit/min edits are pending, confirm before
+// discarding them (Cancel keeps Settings open) rather than silently losing
+// or silently pushing unreviewed edits.
+function attemptCloseSettings() {
+  const diffs = categoryDiffs();
+  if (diffs.length === 0) return closeSettings();
+
+  const bodyHtml = diffs.map(d => `
+    <div class="diff-item">
+      <div class="diff-item-title">${escapeHtml(d.label)}</div>
+      ${d.fields.map(f => `
+        <div class="diff-field">
+          <span class="diff-field-name">${escapeHtml(f.name)}</span>
+          <span class="diff-before">${escapeHtml(String(f.before))}</span>
+          <span class="diff-arrow">&rarr;</span>
+          <span class="diff-after">${escapeHtml(String(f.after))}</span>
+        </div>
+      `).join('')}
+    </div>
+  `).join('');
+
+  showConfirmModal({
+    title: 'Save changes?',
+    bodyHtml,
+    confirmLabel: 'Save',
+    cancelLabel: 'Discard',
+    onConfirm: async () => { await saveCategoryDiffs(diffs); closeSettings(); if (currentView === 'week') renderWeekView(); },
+    onCancel: () => { discardCategoryEdits(); closeSettings(); if (currentView === 'week') renderWeekView(); },
+  });
 }
 
 // Applies an edit from a settings text field and keeps the This Week table
 // in sync, without touching the settings screen's own DOM — re-rendering
-// settings on every keystroke would blow away focus/cursor position.
+// settings on every keystroke would blow away focus/cursor position. Only
+// staged locally — see attemptCloseSettings for when this actually saves.
 function updateCategoryField(id, field, value) {
   const cat = CATEGORIES.find(c => c.id === id);
   if (!cat) return;
   cat[field] = value;
-  queueSaveCategory(id);
   if (currentView === 'week') renderWeekView();
 }
 
@@ -602,7 +687,7 @@ function renderSettings() {
 }
 
 function initSettings() {
-  document.getElementById('settingsBackBtn').addEventListener('click', closeSettings);
+  document.getElementById('settingsBackBtn').addEventListener('click', attemptCloseSettings);
 
   const body = document.getElementById('settingsBody');
   body.addEventListener('input', (e) => {
@@ -624,9 +709,31 @@ function initSettings() {
     const dir = parseInt(btn.dataset.dir, 10);
     cat.min = Math.max(0, Math.min(MIN_PER_WEEK_MAX, (cat.min || 0) + dir));
     stepper.querySelector('.stepper-value').textContent = cat.min;
-    queueSaveCategory(cat.id);
     if (currentView === 'week') renderWeekView();
   });
+}
+
+// Generic yes/no modal — used for the archive confirm and the
+// save-changes-on-exit confirm. Only one instance is ever shown at a time.
+function showConfirmModal({ title, bodyHtml, confirmLabel, cancelLabel, danger, onConfirm, onCancel }) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal-card">
+      <h3 class="modal-title">${escapeHtml(title)}</h3>
+      <div class="modal-body">${bodyHtml}</div>
+      <div class="modal-actions">
+        <button type="button" class="modal-btn modal-btn-cancel">${escapeHtml(cancelLabel || 'Cancel')}</button>
+        <button type="button" class="modal-btn modal-btn-confirm${danger ? ' modal-btn-danger' : ''}">${escapeHtml(confirmLabel || 'Confirm')}</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const cleanup = () => overlay.remove();
+  overlay.addEventListener('click', (e) => { if (e.target === overlay && onCancel) { cleanup(); onCancel(); } else if (e.target === overlay) cleanup(); });
+  overlay.querySelector('.modal-btn-cancel').addEventListener('click', () => { cleanup(); if (onCancel) onCancel(); });
+  overlay.querySelector('.modal-btn-confirm').addEventListener('click', () => { cleanup(); onConfirm(); });
 }
 
 // ---------- render: History ----------
