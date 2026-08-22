@@ -46,6 +46,15 @@ changes to one place; per-user sheets would multiply that cost for no real benef
   reference the id, so the def row must survive for that history to keep making sense.
 - **`CategoryEntries`** — one row per `(weekKey, email, categoryId)`: `weekKey, email,
   categoryId, mon, tue, wed, thu, fri, sat, sun, updatedAt`.
+- **`UserSettings`** — one row per email, for account-level settings not tied to a
+  specific category: `email, stepsMin, updatedAt`. Currently just the Daily Steps weekly
+  goal (default 7, editable 1–7 from Training Settings) — see `lib/userSettings.js`.
+
+Every workout type's weekly minimum (`CategoryDefs.min`) is clamped to >= 1 both
+client-side (`MIN_PER_WEEK_MIN` in `app.js`) and server-side (`clampMin` in
+`lib/categories.js`) — 0 is never a valid value; "no minimum" categories (Padel, Golf)
+still require 1x/week. `scripts/fix-category-min-floor.js` is a one-off patch for rows
+that predate this rule.
 
 The frontend never sees this split directly: `api/weeks.js` GET merges a user's
 `CategoryEntries` into each week object as `c{categoryId}_{day}` fields (e.g. `c6_mon`),

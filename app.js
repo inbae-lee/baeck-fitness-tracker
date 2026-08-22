@@ -9,8 +9,8 @@ const DEFAULT_CATEGORIES = [
   { label: 'Uphill Walk', unit: '30min · min 1×/wk', min: 1 },
   { label: 'Slow Jogging', unit: '3KM · min 1×/wk', min: 1 },
   { label: 'Strength Training', unit: '45min · min 2×/wk', min: 2 },
-  { label: 'Padel', unit: '1H+', min: 0 },
-  { label: 'Golf Practice', unit: '30min+', min: 0 },
+  { label: 'Padel', unit: '1H+', min: 1 },
+  { label: 'Golf Practice', unit: '30min+', min: 1 },
 ];
 
 // Fetched from /api/categories per signed-in account (see
@@ -19,6 +19,12 @@ const DEFAULT_CATEGORIES = [
 // (row.key + '_' + day) are unaffected by categories being dynamic now,
 // since 'c6_mon' works exactly like the old hardcoded 'uphillWalk_mon' did.
 let CATEGORIES = [];
+
+const DEFAULT_STEPS_MIN = 7;
+// Fetched from /api/settings per signed-in account (see fetchSettings/
+// loadLocalSettings below) — how many days/week of 8,000+ steps counts as
+// "met" for the Daily Steps row, editable from Training Settings.
+let STEPS_MIN = DEFAULT_STEPS_MIN;
 
 const DAY_SUFFIXES = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
@@ -31,7 +37,7 @@ const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 function trackedRows() {
   return [
     ...CATEGORIES,
-    { key: 'steps', label: 'Daily Steps', unit: '8,000+ steps', min: 0 },
+    { key: 'steps', label: 'Daily Steps', unit: '8,000+ steps', min: STEPS_MIN },
     { key: 'rest', label: 'Full Rest Day', unit: '', min: 1 },
   ];
 }
@@ -162,6 +168,61 @@ function toCategoryEntry(serverCat) {
   return Object.assign({}, serverCat, { key: `c${serverCat.id}` });
 }
 
+const SETTINGS_STORAGE_KEY = 'laplog:settings';
+const SETTINGS_API_URL = '/api/settings';
+
+function settingsStorageKeyForEmail(email) {
+  return `${SETTINGS_STORAGE_KEY}:${email}`;
+}
+
+function loadLocalSettings() {
+  STEPS_MIN = DEFAULT_STEPS_MIN;
+  if (!currentEmail) return;
+  try {
+    const raw = localStorage.getItem(settingsStorageKeyForEmail(currentEmail));
+    if (raw) STEPS_MIN = Number(JSON.parse(raw).stepsMin) || DEFAULT_STEPS_MIN;
+  } catch (e) { /* keep default */ }
+}
+
+function saveLocalSettings() {
+  if (!currentEmail) return;
+  localStorage.setItem(settingsStorageKeyForEmail(currentEmail), JSON.stringify({ stepsMin: STEPS_MIN }));
+}
+
+async function fetchSettings() {
+  if (!idToken) return;
+  try {
+    const url = `${SETTINGS_API_URL}?id_token=${encodeURIComponent(idToken)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (!data.ok) {
+      if (AUTH_ERRORS.has(data.error)) return signOut(authErrorMessage(data));
+      throw new Error(data.error || 'fetch_failed');
+    }
+    STEPS_MIN = data.settings.stepsMin;
+    saveLocalSettings();
+    if (currentView === 'week') renderWeekView();
+  } catch (e) { /* offline: keep whatever loadLocalSettings() found */ }
+}
+
+async function pushStepsMin() {
+  if (!idToken) return;
+  try {
+    const res = await fetch(SETTINGS_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_token: idToken, settings: { stepsMin: STEPS_MIN } }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      if (AUTH_ERRORS.has(data.error)) return signOut(authErrorMessage(data));
+      throw new Error(data.error || 'save_failed');
+    }
+    STEPS_MIN = data.settings.stepsMin;
+    saveLocalSettings();
+  } catch (e) { /* left as the locally-saved value; next edit or reload retries */ }
+}
+
 // A brand-new account has zero CategoryDefs rows on the server — create
 // the same 5 defaults the app used to hardcode, but through the real
 // server id-assignment path so they behave identically to any other
@@ -234,7 +295,7 @@ async function addCategory() {
     const res = await fetch(CATEGORIES_API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id_token: idToken, category: { label: 'New Workout', unit: '', min: 0, sortOrder } }),
+      body: JSON.stringify({ id_token: idToken, category: { label: 'New Workout', unit: '', min: 1, sortOrder } }),
     });
     const data = await res.json();
     if (!data.ok) {
@@ -280,7 +341,7 @@ async function doArchiveCategory(id) {
       throw new Error(data.error || 'save_failed');
     }
     CATEGORIES = CATEGORIES.filter(c => c.id !== id);
-    if (settingsSnapshot) settingsSnapshot = settingsSnapshot.filter(c => c.id !== id);
+    if (settingsSnapshot) settingsSnapshot.categories = settingsSnapshot.categories.filter(c => c.id !== id);
     saveLocalCategories();
     renderSettings();
     if (currentView === 'week') renderWeekView();
@@ -439,7 +500,9 @@ function weeklyProgressPercent(week) {
   CATEGORIES.forEach(cat => {
     const threshold = Math.max(cat.min, 1);
     possible += threshold;
-    if (rowTotal(cat, week) >= threshold) earned += threshold;
+    // Partial credit toward the threshold — 1 of a 2x/week minimum still
+    // counts for 1 point, not 0, rather than all-or-nothing at the goal.
+    earned += Math.min(rowTotal(cat, week), threshold);
   });
   STEP_DAYS.forEach(d => {
     possible += 1;
@@ -561,17 +624,18 @@ function renderTrainingTable(week) {
 const GEAR_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>`;
 
 const MIN_PER_WEEK_MAX = 7;
+const MIN_PER_WEEK_MIN = 1; // every workout type requires at least 1×/week — 0 is never allowed
 
-// Snapshot of CATEGORIES taken when Training Settings opens — label/unit/min
-// edits are staged against CATEGORIES in memory only (see
-// updateCategoryField/the stepper handler below) and diffed against this on
-// exit (attemptCloseSettings) rather than pushed to the server per
-// keystroke. null while settings is closed.
+// Snapshot of CATEGORIES + STEPS_MIN taken when Training Settings opens —
+// label/unit/min edits (and the Daily Steps min edit) are staged in memory
+// only (see updateCategoryField/the stepper handlers below) and diffed
+// against this on exit (attemptCloseSettings) rather than pushed to the
+// server per keystroke. null while settings is closed.
 let settingsSnapshot = null;
 
 function openSettings() {
   document.getElementById('settingsOverlay').hidden = false;
-  settingsSnapshot = CATEGORIES.map(c => ({ ...c }));
+  settingsSnapshot = { categories: CATEGORIES.map(c => ({ ...c })), stepsMin: STEPS_MIN };
   renderSettings();
 }
 
@@ -580,10 +644,12 @@ function closeSettings() {
   settingsSnapshot = null;
 }
 
-// Compares live CATEGORIES against settingsSnapshot, field by field, for
-// whatever's still present in both (an archived category is dropped from
-// both lists together in doArchiveCategory, so it never shows up here —
-// its removal already went through its own confirm modal).
+// Compares live CATEGORIES + STEPS_MIN against settingsSnapshot. Each diff
+// entry uses `id: 'steps'` for the Daily Steps row (a sentinel — real
+// category ids are always numeric) so saveCategoryDiffs/discard can tell
+// which path to use. An archived category is dropped from both lists
+// together in doArchiveCategory, so it never shows up here — its removal
+// already went through its own confirm modal.
 function categoryDiffs() {
   const fieldDefs = [
     { key: 'label', name: 'Name' },
@@ -592,24 +658,34 @@ function categoryDiffs() {
   ];
   const diffs = [];
   CATEGORIES.forEach(cat => {
-    const before = settingsSnapshot && settingsSnapshot.find(s => s.id === cat.id);
+    const before = settingsSnapshot && settingsSnapshot.categories.find(s => s.id === cat.id);
     if (!before) return; // added this session — already saved by addCategory, nothing to diff
     const fields = fieldDefs
       .filter(f => before[f.key] !== cat[f.key])
       .map(f => ({ name: f.name, before: before[f.key], after: cat[f.key] }));
     if (fields.length) diffs.push({ id: cat.id, label: cat.label, fields });
   });
+  if (settingsSnapshot && settingsSnapshot.stepsMin !== STEPS_MIN) {
+    diffs.push({
+      id: 'steps',
+      label: 'Daily Steps',
+      fields: [{ name: 'Days/week', before: settingsSnapshot.stepsMin, after: STEPS_MIN }],
+    });
+  }
   return diffs;
 }
 
 async function saveCategoryDiffs(diffs) {
   saveLocalCategories();
-  await Promise.all(diffs.map(d => pushCategory(d.id)));
+  saveLocalSettings();
+  await Promise.all(diffs.map(d => (d.id === 'steps' ? pushStepsMin() : pushCategory(d.id))));
 }
 
 function discardCategoryEdits() {
-  CATEGORIES = settingsSnapshot.map(c => ({ ...c }));
+  CATEGORIES = settingsSnapshot.categories.map(c => ({ ...c }));
+  STEPS_MIN = settingsSnapshot.stepsMin;
   saveLocalCategories();
+  saveLocalSettings();
 }
 
 // Back-button handler: if label/unit/min edits are pending, confirm before
@@ -657,6 +733,23 @@ function updateCategoryField(id, field, value) {
 function renderSettings() {
   const body = document.getElementById('settingsBody');
   const wrap = document.createElement('div');
+
+  const stepsItem = document.createElement('div');
+  stepsItem.className = 'card settings-item';
+  stepsItem.innerHTML = `
+    <label class="settings-label">Name</label>
+    <div class="settings-input-title">Daily Steps</div>
+    <label class="settings-label">Details</label>
+    <div class="settings-input-sub">8,000+ steps</div>
+    <label class="settings-label">Days per week</label>
+    <div class="stepper" data-id="steps">
+      <button type="button" class="stepper-btn" data-dir="-1" aria-label="Decrease">−</button>
+      <span class="stepper-value">${STEPS_MIN}</span>
+      <button type="button" class="stepper-btn" data-dir="1" aria-label="Increase">+</button>
+    </div>
+  `;
+  wrap.appendChild(stepsItem);
+
   CATEGORIES.forEach(cat => {
     const item = document.createElement('div');
     item.className = 'card settings-item';
@@ -704,10 +797,18 @@ function initSettings() {
     const btn = e.target.closest('.stepper-btn');
     if (!btn) return;
     const stepper = btn.closest('.stepper');
+    const dir = parseInt(btn.dataset.dir, 10);
+
+    if (stepper.dataset.id === 'steps') {
+      STEPS_MIN = Math.max(MIN_PER_WEEK_MIN, Math.min(MIN_PER_WEEK_MAX, (STEPS_MIN || 0) + dir));
+      stepper.querySelector('.stepper-value').textContent = STEPS_MIN;
+      if (currentView === 'week') renderWeekView();
+      return;
+    }
+
     const cat = CATEGORIES.find(c => c.id === parseInt(stepper.dataset.id, 10));
     if (!cat) return;
-    const dir = parseInt(btn.dataset.dir, 10);
-    cat.min = Math.max(0, Math.min(MIN_PER_WEEK_MAX, (cat.min || 0) + dir));
+    cat.min = Math.max(MIN_PER_WEEK_MIN, Math.min(MIN_PER_WEEK_MAX, (cat.min || 0) + dir));
     stepper.querySelector('.stepper-value').textContent = cat.min;
     if (currentView === 'week') renderWeekView();
   });
@@ -916,6 +1017,7 @@ function signOut(message) {
   currentEmail = null;
   weeks = {};
   CATEGORIES = [];
+  STEPS_MIN = DEFAULT_STEPS_MIN;
   closeSettings();
   sessionStorage.removeItem(ID_TOKEN_KEY);
   document.getElementById('userEmail').textContent = '';
@@ -933,9 +1035,10 @@ async function afterSignIn() {
 
   loadLocal();
   loadLocalCategories();
+  loadLocalSettings();
   showApp();
   render();
-  await Promise.all([fetchFromServer(), fetchCategories()]);
+  await Promise.all([fetchFromServer(), fetchCategories(), fetchSettings()]);
 }
 
 function handleCredentialResponse(response) {

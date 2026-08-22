@@ -1,4 +1,4 @@
-# baeck-fitness-tracker v1.10
+# baeck-fitness-tracker v1.11
 
 A weekly workout tracker PWA, built for free: Google Sheet (database) → Vercel serverless
 function (backend API) → Vercel static hosting (installable frontend). No subscriptions,
@@ -9,9 +9,9 @@ Tracks:
 - Uphill Walk (30min, min 1×/week)
 - Slow Jogging (3KM, min 1×/week)
 - Strength Training (45min, min 2×/week)
-- Daily Steps 8,000+ (per-day toggle)
-- Padel (1H+, no minimum)
-- Golf Practice (30min+, no minimum)
+- Daily Steps 8,000+ (per-day toggle, weekly goal editable — default 7 days/week)
+- Padel (1H+, min 1×/week)
+- Golf Practice (30min+, min 1×/week)
 - Full Rest Day (1×/week)
 
 Weekly logs auto-archive into a browsable Past Weeks tab, and roll up into a Monthly tab
@@ -73,11 +73,11 @@ Stack:
 3. **Create a key**: open the service account → Keys → Add Key → Create new key → JSON.
    This downloads a JSON file — you need two fields from it: `client_email` and
    `private_key`.
-4. **Create and share a Sheet**: make a new Google Sheet. The app uses three tabs, all
+4. **Create and share a Sheet**: make a new Google Sheet. The app uses four tabs, all
    partitioned by an `email` column rather than one sheet per user — see
-   [CLAUDE.md](CLAUDE.md) for why. `CategoryDefs` and `CategoryEntries` are created
-   automatically on first API call if missing (see `lib/categories.js`), but `WeeklyLogs`
-   needs to exist upfront with this header row:
+   [CLAUDE.md](CLAUDE.md) for why. `CategoryDefs`, `CategoryEntries`, and `UserSettings`
+   are created automatically on first API call if missing (see `lib/categories.js`,
+   `lib/userSettings.js`), but `WeeklyLogs` needs to exist upfront with this header row:
    ```
    weekKey  email  startDate  steps_mon  steps_tue  steps_wed  steps_thu  steps_fri  steps_sat  steps_sun  rest_mon  rest_tue  rest_wed  rest_thu  rest_fri  rest_sat  rest_sun  updatedAt
    ```

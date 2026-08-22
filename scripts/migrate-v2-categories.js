@@ -25,40 +25,7 @@
  * are skipped per-row if a matching row already exists.
  */
 
-const fs = require('fs');
-const path = require('path');
-
-// Minimal .env loader — one KEY=value per entry, value optionally wrapped
-// in matching quotes. `vercel env pull` writes multi-line secrets (like a
-// PEM private key) with the real newlines preserved INSIDE the quotes
-// rather than as \n escapes, so this scans char-by-char for the matching
-// closing quote instead of splitting on '\n' first (a naive per-line split
-// would silently truncate the key at its first embedded newline). Doesn't
-// overwrite a var already set in the real environment.
-function loadEnvFile(filePath) {
-  if (!fs.existsSync(filePath)) return;
-  const raw = fs.readFileSync(filePath, 'utf8');
-  const lineStartRe = /^([A-Za-z_][A-Za-z0-9_]*)=/gm;
-  let match;
-  while ((match = lineStartRe.exec(raw))) {
-    const key = match[1];
-    const valueStart = lineStartRe.lastIndex;
-    const quote = raw[valueStart];
-    let value, nextSearchFrom;
-    if (quote === '"' || quote === "'") {
-      const closeIdx = raw.indexOf(quote, valueStart + 1);
-      value = raw.slice(valueStart + 1, closeIdx === -1 ? undefined : closeIdx);
-      nextSearchFrom = closeIdx === -1 ? raw.length : closeIdx + 1;
-    } else {
-      const eol = raw.indexOf('\n', valueStart);
-      value = raw.slice(valueStart, eol === -1 ? undefined : eol);
-      nextSearchFrom = eol === -1 ? raw.length : eol;
-    }
-    if (process.env[key] === undefined) process.env[key] = value;
-    lineStartRe.lastIndex = nextSearchFrom;
-  }
-}
-loadEnvFile(path.resolve(process.cwd(), process.env.ENV_FILE || '.env.migration'));
+require('../lib/envFile').loadDefaultEnvFile('.env.migration');
 
 const {
   sheetsAccessToken, columnLetter, sheetsGetValues, sheetsUpdateValues, sheetsClearValues,
@@ -104,8 +71,8 @@ const LEGACY_CATEGORIES = [
   { legacyKey: 'uphillWalk', id: 1, label: 'Uphill Walk', unit: '30min · min 1×/wk', min: 1 },
   { legacyKey: 'slowJog', id: 2, label: 'Slow Jogging', unit: '3KM · min 1×/wk', min: 1 },
   { legacyKey: 'strength', id: 3, label: 'Strength Training', unit: '45min · min 2×/wk', min: 2 },
-  { legacyKey: 'padel', id: 4, label: 'Padel', unit: '1H+', min: 0 },
-  { legacyKey: 'golf', id: 5, label: 'Golf Practice', unit: '30min+', min: 0 },
+  { legacyKey: 'padel', id: 4, label: 'Padel', unit: '1H+', min: 1 },
+  { legacyKey: 'golf', id: 5, label: 'Golf Practice', unit: '30min+', min: 1 },
 ];
 
 function oldRowToObject(row) {
