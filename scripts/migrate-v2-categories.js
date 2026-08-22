@@ -11,17 +11,44 @@
  * next big rework rather than run more than once.
  *
  * Usage:
- *   GOOGLE_SHEET_ID=... GOOGLE_SERVICE_ACCOUNT_EMAIL=... \
- *   GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=... node scripts/migrate-v2-categories.js --dry-run
+ *   npx vercel env pull .env.migration   # writes GOOGLE_SHEET_ID etc. as real values
+ *   node scripts/migrate-v2-categories.js --dry-run
+ *   node scripts/migrate-v2-categories.js            # drop --dry-run to actually write
  *
- *   (drop --dry-run to actually write). Pull real values for those env vars
- *   from Vercel first, e.g. `vercel env pull .env.migration` then
- *   `export $(grep -v '^#' .env.migration | xargs)`.
+ * Loads .env.migration itself (see loadEnvFile below) rather than relying on
+ * shell export tricks — `export $(xargs) < .env` mangles the multi-line,
+ * quoted GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY value. Point at a different file
+ * with ENV_FILE=path/to/file if you're not using the default name.
  *
  * Safe to re-run: WeeklyLogs is only rewritten once (skipped if it's
  * already in the trimmed v2 shape), and CategoryDefs/CategoryEntries writes
  * are skipped per-row if a matching row already exists.
  */
+
+const fs = require('fs');
+const path = require('path');
+
+// Minimal .env loader — one KEY=value per line, value optionally wrapped in
+// matching quotes (the shape `vercel env pull` writes; the private key
+// comes through as a single line with literal \n escapes, which
+// lib/sheets.js already un-escapes). Doesn't overwrite a var already set in
+// the real environment.
+function loadEnvFile(filePath) {
+  if (!fs.existsSync(filePath)) return;
+  const lines = fs.readFileSync(filePath, 'utf8').split('\n');
+  lines.forEach(line => {
+    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (!match) return;
+    const key = match[1];
+    let value = match[2];
+    const quote = value[0];
+    if ((quote === '"' || quote === "'") && value[value.length - 1] === quote) {
+      value = value.slice(1, -1);
+    }
+    if (process.env[key] === undefined) process.env[key] = value;
+  });
+}
+loadEnvFile(path.resolve(process.cwd(), process.env.ENV_FILE || '.env.migration'));
 
 const {
   sheetsAccessToken, columnLetter, sheetsGetValues, sheetsUpdateValues, sheetsClearValues,
