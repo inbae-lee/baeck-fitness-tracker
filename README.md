@@ -1,4 +1,4 @@
-# baeck-fitness-tracker v1.11
+# baeck-fitness-tracker v1.12
 
 A weekly workout tracker PWA, built for free: Google Sheet (database) → Vercel serverless
 function (backend API) → Vercel static hosting (installable frontend). No subscriptions,
@@ -12,7 +12,7 @@ Tracks:
 - Daily Steps 8,000+ (per-day toggle, weekly goal editable — default 7 days/week)
 - Padel (1H+, min 1×/week)
 - Golf Practice (30min+, min 1×/week)
-- Full Rest Day (1×/week)
+- Full Rest Day (weekly goal editable — default 1 day/week)
 
 Weekly logs auto-archive into a browsable Past Weeks tab, and roll up into a Monthly tab
 for quarterly review.
@@ -115,6 +115,11 @@ npx vercel dev --listen 3000
 
 Open [http://localhost:3000](http://localhost:3000) — `vercel dev` pulls your env vars
 automatically once linked.
+
+To skip the Google Sign-In screen locally, create a `.env.local` file (gitignored, never
+deployed) with `DEV_BYPASS_EMAIL=<one of your ALLOWED_EMAILS>` — `vercel dev` picks it up
+automatically. Put it there, not via `vercel env add`, so it can never end up in a real
+deployment's env config. See [CLAUDE.md](CLAUDE.md) for how this is hard-gated to local-only.
 
 ### 5. Install on phone
 

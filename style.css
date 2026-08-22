@@ -6,6 +6,7 @@
   --accent: #4f46e5;
   --accent-soft: #eef2ff;
   --good: #16a34a;
+  --danger: #dc2626;
   --border: #e5e5eb;
   color-scheme: light;
 }
@@ -89,19 +90,46 @@ html, body {
   flex-shrink: 0;
 }
 .sync-status.syncing { background: #eab308; }
-.sync-status.error { background: #dc2626; }
+.sync-status.error { background: var(--danger); }
 .sync-status.pending { background: #9ca3af; }
 
-.signout-btn {
-  border: none;
-  background: transparent;
-  color: var(--muted);
-  font-size: 12px;
+/* Shared look for every rectangular, labeled action button (Sign out,
+   Retry, +Add workout type, modal Save/Discard/Remove/Cancel) — bordered,
+   rounded, same padding/weight, so they all read as clickable the same
+   way. Icon-only buttons (gear, back arrow, stepper +/-, category ×) are a
+   separate family further below, sized for a tap target rather than a
+   label. */
+.signout-btn,
+.auth-retry-btn,
+.settings-add-btn,
+.modal-btn {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--ink);
+  font-size: 13px;
   font-weight: 600;
+  font-family: inherit;
+  padding: 8px 16px;
   cursor: pointer;
-  padding: 4px 0;
 }
-.signout-btn:hover { color: var(--accent); }
+.signout-btn:hover,
+.auth-retry-btn:hover,
+.settings-add-btn:hover,
+.modal-btn:hover,
+.signout-btn:active,
+.auth-retry-btn:active,
+.settings-add-btn:active,
+.modal-btn:active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.signout-btn {
+  font-size: 12px;
+  padding: 5px 12px;
+}
 
 .tabs {
   display: flex;
@@ -194,7 +222,7 @@ html, body {
   align-items: center;
   justify-content: center;
 }
-.settings-gear-btn:hover { color: var(--accent); background: var(--accent-soft); }
+.settings-gear-btn:hover, .settings-gear-btn:active { color: var(--accent); background: var(--accent-soft); }
 .settings-gear-btn svg { width: 18px; height: 18px; }
 
 .grid-table {
@@ -473,20 +501,9 @@ html, body {
   color: var(--muted);
   font-size: 13px;
 }
-.auth-error.is-error { color: #dc2626; }
+.auth-error.is-error { color: var(--danger); }
 
-.auth-retry-btn {
-  margin-top: 14px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--ink);
-  font-size: 13px;
-  font-weight: 600;
-  padding: 8px 16px;
-  border-radius: 8px;
-  cursor: pointer;
-}
-.auth-retry-btn:hover { border-color: var(--accent); color: var(--accent); }
+.auth-retry-btn { margin-top: 14px; }
 
 .settings-overlay {
   position: fixed;
@@ -523,11 +540,13 @@ html, body {
   cursor: pointer;
   padding: 4px;
   margin: -4px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
 }
+.settings-back-btn:hover, .settings-back-btn:active { color: var(--accent); background: var(--accent-soft); }
 .settings-back-btn svg { width: 22px; height: 22px; }
 
 .settings-body {
@@ -563,19 +582,14 @@ html, body {
   align-items: center;
   justify-content: center;
 }
-.settings-archive-btn:active { background: var(--accent-soft); color: var(--ink); }
+.settings-archive-btn:hover, .settings-archive-btn:active { border-color: var(--danger); color: var(--danger); background: var(--card); }
 
 .settings-add-btn {
-  border: 1px dashed var(--border);
-  border-radius: 10px;
+  width: 100%;
   padding: 12px;
   font-size: 14px;
-  font-weight: 600;
   color: var(--accent);
-  background: transparent;
-  cursor: pointer;
 }
-.settings-add-btn:active { background: var(--accent-soft); }
 
 .settings-label {
   font-size: 11px;
@@ -672,19 +686,13 @@ html, body {
   margin-top: 18px;
 }
 
-.modal-btn {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 16px;
-  font-size: 14px;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  background: var(--bg);
-  color: var(--ink);
-}
-.modal-btn-confirm { background: var(--accent); border-color: var(--accent); color: #fff; }
-.modal-btn-danger { background: #dc2626; border-color: #dc2626; color: #fff; }
+.modal-btn { font-size: 14px; }
+.modal-btn-confirm,
+.modal-btn-confirm:hover,
+.modal-btn-confirm:active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.modal-btn-danger,
+.modal-btn-danger:hover,
+.modal-btn-danger:active { background: var(--danger); border-color: var(--danger); color: #fff; }
 
 .diff-item + .diff-item { margin-top: 14px; }
 

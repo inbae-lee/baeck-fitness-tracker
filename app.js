@@ -21,10 +21,13 @@ const DEFAULT_CATEGORIES = [
 let CATEGORIES = [];
 
 const DEFAULT_STEPS_MIN = 7;
+const DEFAULT_REST_MIN = 1;
 // Fetched from /api/settings per signed-in account (see fetchSettings/
-// loadLocalSettings below) — how many days/week of 8,000+ steps counts as
-// "met" for the Daily Steps row, editable from Training Settings.
+// loadLocalSettings below) — how many days/week of 8,000+ steps (STEPS_MIN)
+// or full rest days (REST_MIN) count as "met", editable from Training
+// Settings.
 let STEPS_MIN = DEFAULT_STEPS_MIN;
+let REST_MIN = DEFAULT_REST_MIN;
 
 const DAY_SUFFIXES = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
@@ -38,7 +41,7 @@ function trackedRows() {
   return [
     ...CATEGORIES,
     { key: 'steps', label: 'Daily Steps', unit: '8,000+ steps', min: STEPS_MIN },
-    { key: 'rest', label: 'Full Rest Day', unit: '', min: 1 },
+    { key: 'rest', label: 'Full Rest Day', unit: '', min: REST_MIN },
   ];
 }
 
@@ -177,16 +180,21 @@ function settingsStorageKeyForEmail(email) {
 
 function loadLocalSettings() {
   STEPS_MIN = DEFAULT_STEPS_MIN;
+  REST_MIN = DEFAULT_REST_MIN;
   if (!currentEmail) return;
   try {
     const raw = localStorage.getItem(settingsStorageKeyForEmail(currentEmail));
-    if (raw) STEPS_MIN = Number(JSON.parse(raw).stepsMin) || DEFAULT_STEPS_MIN;
-  } catch (e) { /* keep default */ }
+    if (raw) {
+      const saved = JSON.parse(raw);
+      STEPS_MIN = Number(saved.stepsMin) || DEFAULT_STEPS_MIN;
+      REST_MIN = Number(saved.restMin) || DEFAULT_REST_MIN;
+    }
+  } catch (e) { /* keep defaults */ }
 }
 
 function saveLocalSettings() {
   if (!currentEmail) return;
-  localStorage.setItem(settingsStorageKeyForEmail(currentEmail), JSON.stringify({ stepsMin: STEPS_MIN }));
+  localStorage.setItem(settingsStorageKeyForEmail(currentEmail), JSON.stringify({ stepsMin: STEPS_MIN, restMin: REST_MIN }));
 }
 
 async function fetchSettings() {
@@ -200,18 +208,19 @@ async function fetchSettings() {
       throw new Error(data.error || 'fetch_failed');
     }
     STEPS_MIN = data.settings.stepsMin;
+    REST_MIN = data.settings.restMin;
     saveLocalSettings();
     if (currentView === 'week') renderWeekView();
   } catch (e) { /* offline: keep whatever loadLocalSettings() found */ }
 }
 
-async function pushStepsMin() {
+async function pushSettings() {
   if (!idToken) return;
   try {
     const res = await fetch(SETTINGS_API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id_token: idToken, settings: { stepsMin: STEPS_MIN } }),
+      body: JSON.stringify({ id_token: idToken, settings: { stepsMin: STEPS_MIN, restMin: REST_MIN } }),
     });
     const data = await res.json();
     if (!data.ok) {
@@ -219,6 +228,7 @@ async function pushStepsMin() {
       throw new Error(data.error || 'save_failed');
     }
     STEPS_MIN = data.settings.stepsMin;
+    REST_MIN = data.settings.restMin;
     saveLocalSettings();
   } catch (e) { /* left as the locally-saved value; next edit or reload retries */ }
 }
@@ -508,8 +518,10 @@ function weeklyProgressPercent(week) {
     possible += 1;
     if (week[d.key]) earned += 1;
   });
-  possible += 1; // full rest day — worth 1 point regardless of how many days are picked
-  if (REST_DAYS.some(d => week[d.key])) earned += 1;
+  const restThreshold = Math.max(REST_MIN, 1);
+  possible += restThreshold;
+  const restDaysDone = REST_DAYS.filter(d => week[d.key]).length;
+  earned += Math.min(restDaysDone, restThreshold);
 
   return Math.round((earned / possible) * 100);
 }
@@ -626,16 +638,17 @@ const GEAR_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor
 const MIN_PER_WEEK_MAX = 7;
 const MIN_PER_WEEK_MIN = 1; // every workout type requires at least 1×/week — 0 is never allowed
 
-// Snapshot of CATEGORIES + STEPS_MIN taken when Training Settings opens —
-// label/unit/min edits (and the Daily Steps min edit) are staged in memory
-// only (see updateCategoryField/the stepper handlers below) and diffed
-// against this on exit (attemptCloseSettings) rather than pushed to the
-// server per keystroke. null while settings is closed.
+// Snapshot of CATEGORIES + STEPS_MIN + REST_MIN taken when Training
+// Settings opens — label/unit/min edits (and the Daily Steps / Full Rest
+// Day min edits) are staged in memory only (see updateCategoryField/the
+// stepper handlers below) and diffed against this on exit
+// (attemptCloseSettings) rather than pushed to the server per keystroke.
+// null while settings is closed.
 let settingsSnapshot = null;
 
 function openSettings() {
   document.getElementById('settingsOverlay').hidden = false;
-  settingsSnapshot = { categories: CATEGORIES.map(c => ({ ...c })), stepsMin: STEPS_MIN };
+  settingsSnapshot = { categories: CATEGORIES.map(c => ({ ...c })), stepsMin: STEPS_MIN, restMin: REST_MIN };
   renderSettings();
 }
 
@@ -644,12 +657,15 @@ function closeSettings() {
   settingsSnapshot = null;
 }
 
-// Compares live CATEGORIES + STEPS_MIN against settingsSnapshot. Each diff
-// entry uses `id: 'steps'` for the Daily Steps row (a sentinel — real
-// category ids are always numeric) so saveCategoryDiffs/discard can tell
-// which path to use. An archived category is dropped from both lists
-// together in doArchiveCategory, so it never shows up here — its removal
-// already went through its own confirm modal.
+// Sentinel ids (real category ids are always numeric) for the two fixed
+// rows whose min lives in UserSettings rather than CategoryDefs.
+const STEPS_SENTINEL_ID = 'steps';
+const REST_SENTINEL_ID = 'rest';
+
+// Compares live CATEGORIES + STEPS_MIN + REST_MIN against settingsSnapshot.
+// An archived category is dropped from both lists together in
+// doArchiveCategory, so it never shows up here — its removal already went
+// through its own confirm modal.
 function categoryDiffs() {
   const fieldDefs = [
     { key: 'label', name: 'Name' },
@@ -667,23 +683,39 @@ function categoryDiffs() {
   });
   if (settingsSnapshot && settingsSnapshot.stepsMin !== STEPS_MIN) {
     diffs.push({
-      id: 'steps',
+      id: STEPS_SENTINEL_ID,
       label: 'Daily Steps',
       fields: [{ name: 'Days/week', before: settingsSnapshot.stepsMin, after: STEPS_MIN }],
+    });
+  }
+  if (settingsSnapshot && settingsSnapshot.restMin !== REST_MIN) {
+    diffs.push({
+      id: REST_SENTINEL_ID,
+      label: 'Full Rest Day',
+      fields: [{ name: 'Days/week', before: settingsSnapshot.restMin, after: REST_MIN }],
     });
   }
   return diffs;
 }
 
+function isSettingsSentinel(id) {
+  return id === STEPS_SENTINEL_ID || id === REST_SENTINEL_ID;
+}
+
 async function saveCategoryDiffs(diffs) {
   saveLocalCategories();
   saveLocalSettings();
-  await Promise.all(diffs.map(d => (d.id === 'steps' ? pushStepsMin() : pushCategory(d.id))));
+  const categoryPushes = diffs.filter(d => !isSettingsSentinel(d.id)).map(d => pushCategory(d.id));
+  // stepsMin/restMin live in the same UserSettings row — one push covers
+  // both, however many of the two sentinels changed.
+  const needsSettingsPush = diffs.some(d => isSettingsSentinel(d.id));
+  await Promise.all([...categoryPushes, ...(needsSettingsPush ? [pushSettings()] : [])]);
 }
 
 function discardCategoryEdits() {
   CATEGORIES = settingsSnapshot.categories.map(c => ({ ...c }));
   STEPS_MIN = settingsSnapshot.stepsMin;
+  REST_MIN = settingsSnapshot.restMin;
   saveLocalCategories();
   saveLocalSettings();
 }
@@ -750,6 +782,20 @@ function renderSettings() {
   `;
   wrap.appendChild(stepsItem);
 
+  const restItem = document.createElement('div');
+  restItem.className = 'card settings-item';
+  restItem.innerHTML = `
+    <label class="settings-label">Name</label>
+    <div class="settings-input-title">Full Rest Day</div>
+    <label class="settings-label">Days per week</label>
+    <div class="stepper" data-id="rest">
+      <button type="button" class="stepper-btn" data-dir="-1" aria-label="Decrease">−</button>
+      <span class="stepper-value">${REST_MIN}</span>
+      <button type="button" class="stepper-btn" data-dir="1" aria-label="Increase">+</button>
+    </div>
+  `;
+  wrap.appendChild(restItem);
+
   CATEGORIES.forEach(cat => {
     const item = document.createElement('div');
     item.className = 'card settings-item';
@@ -799,9 +845,15 @@ function initSettings() {
     const stepper = btn.closest('.stepper');
     const dir = parseInt(btn.dataset.dir, 10);
 
-    if (stepper.dataset.id === 'steps') {
+    if (stepper.dataset.id === STEPS_SENTINEL_ID) {
       STEPS_MIN = Math.max(MIN_PER_WEEK_MIN, Math.min(MIN_PER_WEEK_MAX, (STEPS_MIN || 0) + dir));
       stepper.querySelector('.stepper-value').textContent = STEPS_MIN;
+      if (currentView === 'week') renderWeekView();
+      return;
+    }
+    if (stepper.dataset.id === REST_SENTINEL_ID) {
+      REST_MIN = Math.max(MIN_PER_WEEK_MIN, Math.min(MIN_PER_WEEK_MAX, (REST_MIN || 0) + dir));
+      stepper.querySelector('.stepper-value').textContent = REST_MIN;
       if (currentView === 'week') renderWeekView();
       return;
     }
@@ -1018,6 +1070,7 @@ function signOut(message) {
   weeks = {};
   CATEGORIES = [];
   STEPS_MIN = DEFAULT_STEPS_MIN;
+  REST_MIN = DEFAULT_REST_MIN;
   closeSettings();
   sessionStorage.removeItem(ID_TOKEN_KEY);
   document.getElementById('userEmail').textContent = '';
@@ -1028,9 +1081,16 @@ function signOut(message) {
   showAuthGate(message, !!message);
 }
 
-async function afterSignIn() {
-  const payload = decodeJwtPayload(idToken);
-  currentEmail = payload && payload.email;
+// overrideEmail is set only by the local-dev bypass (see initAuth) — the
+// sentinel 'DEV_BYPASS' token isn't a real JWT, so there's no payload to
+// decode an email out of.
+async function afterSignIn(overrideEmail) {
+  if (overrideEmail) {
+    currentEmail = overrideEmail;
+  } else {
+    const payload = decodeJwtPayload(idToken);
+    currentEmail = payload && payload.email;
+  }
   if (!currentEmail) return signOut('Could not read the signed-in account from the sign-in token — try again.');
 
   loadLocal();
@@ -1104,12 +1164,37 @@ async function initGoogleSignIn() {
   }
 }
 
+const DEV_BYPASS_TOKEN = 'DEV_BYPASS'; // must match lib/auth.js's DEV_BYPASS_TOKEN
+
+// Local-dev-only: checks /api/dev-bypass (see lib/auth.js — hard-gated to
+// never activate on a real Production deployment) and, if active, skips
+// the whole Google Sign-In UI/flow rather than just skip one click.
+async function checkDevBypass() {
+  try {
+    const res = await fetch('/api/dev-bypass');
+    const data = await res.json();
+    return data.enabled ? data.email : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function initAuth() {
+  const bypassEmail = await checkDevBypass();
+  if (bypassEmail) {
+    idToken = DEV_BYPASS_TOKEN;
+    afterSignIn(bypassEmail);
+    return;
+  }
+  initGoogleSignIn();
+}
+
 // ---------- init ----------
 
 initTabs();
 showAuthGate('');
 
-window.addEventListener('load', initGoogleSignIn);
+window.addEventListener('load', initAuth);
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

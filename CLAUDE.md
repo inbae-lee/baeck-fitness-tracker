@@ -20,6 +20,12 @@ Instructions for Claude when working in this repo.
 - `http://localhost:3000` is already whitelisted in the Google OAuth client's Authorized
   JavaScript origins, so Sign In With Google works against `npx vercel dev --listen 3000`
   without any Google Cloud Console changes.
+- A local-only auth bypass exists for skipping the Google sign-in screen entirely: set
+  `DEV_BYPASS_EMAIL=<an ALLOWED_EMAILS address>` in a **`.env.local`** file (never via
+  `vercel env add`, so it can never reach a real deployment's env config) and `vercel dev`
+  picks it up automatically. Hard-gated in `lib/auth.js`/`api/dev-bypass.js` on
+  `VERCEL_ENV !== 'production'`, which Vercel sets on every deployed function — so this
+  cannot activate on a real Production deployment regardless of env var misconfiguration.
 
 ## Project overview
 
@@ -47,8 +53,10 @@ changes to one place; per-user sheets would multiply that cost for no real benef
 - **`CategoryEntries`** — one row per `(weekKey, email, categoryId)`: `weekKey, email,
   categoryId, mon, tue, wed, thu, fri, sat, sun, updatedAt`.
 - **`UserSettings`** — one row per email, for account-level settings not tied to a
-  specific category: `email, stepsMin, updatedAt`. Currently just the Daily Steps weekly
-  goal (default 7, editable 1–7 from Training Settings) — see `lib/userSettings.js`.
+  specific category: `email, stepsMin, updatedAt, restMin` (note `restMin` after
+  `updatedAt` — appended at the end to keep older rows' column positions stable). The
+  Daily Steps weekly goal (default 7) and Full Rest Day weekly goal (default 1), both
+  editable 1–7 from Training Settings — see `lib/userSettings.js`.
 
 Every workout type's weekly minimum (`CategoryDefs.min`) is clamped to >= 1 both
 client-side (`MIN_PER_WEEK_MIN` in `app.js`) and server-side (`clampMin` in
