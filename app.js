@@ -1,17 +1,24 @@
 'use strict';
 
+// Seeded server-side for any account with zero categories (see
+// ensureDefaultCategories) — after that, categories are entirely
+// user-owned: server-assigned numeric ids, editable label/unit/min, and
+// new ones addable from Training Settings (see CLAUDE.md for the
+// CategoryDefs/CategoryEntries schema this maps onto).
 const DEFAULT_CATEGORIES = [
-  { key: 'uphillWalk', label: 'Uphill Walk', unit: '30min · min 1×/wk', min: 1 },
-  { key: 'slowJog', label: 'Slow Jogging', unit: '3KM · min 1×/wk', min: 1 },
-  { key: 'strength', label: 'Strength Training', unit: '45min · min 2×/wk', min: 2 },
-  { key: 'padel', label: 'Padel', unit: '1H+', min: 0 },
-  { key: 'golf', label: 'Golf Practice', unit: '30min+', min: 0 },
+  { label: 'Uphill Walk', unit: '30min · min 1×/wk', min: 1 },
+  { label: 'Slow Jogging', unit: '3KM · min 1×/wk', min: 1 },
+  { label: 'Strength Training', unit: '45min · min 2×/wk', min: 2 },
+  { label: 'Padel', unit: '1H+', min: 0 },
+  { label: 'Golf Practice', unit: '30min+', min: 0 },
 ];
 
-// Mutable, user-editable copy of DEFAULT_CATEGORIES — labels, subtext, and
-// weekly minimums can be changed from the Training settings screen and are
-// persisted per-account (see loadCategories/saveCategories below).
-let CATEGORIES = DEFAULT_CATEGORIES.map(c => ({ ...c }));
+// Fetched from /api/categories per signed-in account (see
+// fetchCategories/loadLocalCategories below). Each entry carries the
+// server's `id` plus a `key` of `c${id}` — the training-table row keys
+// (row.key + '_' + day) are unaffected by categories being dynamic now,
+// since 'c6_mon' works exactly like the old hardcoded 'uphillWalk_mon' did.
+let CATEGORIES = [];
 
 const DAY_SUFFIXES = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
@@ -127,36 +134,144 @@ function saveLocal() {
 }
 
 const CATEGORIES_STORAGE_KEY = 'laplog:categories';
+const CATEGORIES_API_URL = '/api/categories';
 
 function categoriesStorageKeyForEmail(email) {
   return `${CATEGORIES_STORAGE_KEY}:${email}`;
 }
 
-// Categories start from DEFAULT_CATEGORIES and have any saved edits
-// (label/unit/min) applied on top, matched by key — so a later app update
-// that changes a default doesn't get silently clobbered by an unrelated
-// saved field, and a category present in defaults but missing from an old
-// save still shows up.
-function loadCategories() {
-  CATEGORIES = DEFAULT_CATEGORIES.map(c => ({ ...c }));
+// Local cache read at sign-in, before the server round-trip completes —
+// same offline-first pattern as loadLocal()/saveLocal() for weeks.
+function loadLocalCategories() {
+  CATEGORIES = [];
   if (!currentEmail) return;
   try {
     const raw = localStorage.getItem(categoriesStorageKeyForEmail(currentEmail));
-    if (!raw) return;
-    const saved = JSON.parse(raw);
-    CATEGORIES.forEach(cat => {
-      const override = saved.find(s => s.key === cat.key);
-      if (!override) return;
-      if (typeof override.label === 'string') cat.label = override.label;
-      if (typeof override.unit === 'string') cat.unit = override.unit;
-      if (typeof override.min === 'number') cat.min = override.min;
-    });
-  } catch (e) { /* ignore */ }
+    CATEGORIES = raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    CATEGORIES = [];
+  }
 }
 
-function saveCategories() {
+function saveLocalCategories() {
   if (!currentEmail) return;
   localStorage.setItem(categoriesStorageKeyForEmail(currentEmail), JSON.stringify(CATEGORIES));
+}
+
+function toCategoryEntry(serverCat) {
+  return Object.assign({}, serverCat, { key: `c${serverCat.id}` });
+}
+
+// A brand-new account has zero CategoryDefs rows on the server — create
+// the same 5 defaults the app used to hardcode, but through the real
+// server id-assignment path so they behave identically to any other
+// user-added category from here on.
+async function ensureDefaultCategories() {
+  for (const def of DEFAULT_CATEGORIES) {
+    try {
+      const res = await fetch(CATEGORIES_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id_token: idToken, category: def }),
+      });
+      const data = await res.json();
+      if (data.ok) CATEGORIES.push(toCategoryEntry(data.category));
+    } catch (e) { /* best-effort seeding; user can add manually if this fails */ }
+  }
+}
+
+async function fetchCategories() {
+  if (!idToken) return;
+  try {
+    const url = `${CATEGORIES_API_URL}?id_token=${encodeURIComponent(idToken)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (!data.ok) {
+      if (AUTH_ERRORS.has(data.error)) return signOut(authErrorMessage(data));
+      throw new Error(data.error || 'fetch_failed');
+    }
+    CATEGORIES = data.categories.map(toCategoryEntry);
+    if (CATEGORIES.length === 0) await ensureDefaultCategories();
+    saveLocalCategories();
+    if (currentView === 'week') renderWeekView();
+    else if (currentView === 'history') renderHistoryView();
+    else renderMonthlyView();
+  } catch (e) { /* offline: keep whatever loadLocalCategories() found */ }
+}
+
+// Debounced per-category push, mirroring queueSave/pushWeek for weeks.
+let pendingCategorySaves = {};
+function queueSaveCategory(id) {
+  saveLocalCategories();
+  clearTimeout(pendingCategorySaves[id]);
+  pendingCategorySaves[id] = setTimeout(() => pushCategory(id), 800);
+}
+
+async function pushCategory(id) {
+  if (!idToken) return;
+  const cat = CATEGORIES.find(c => c.id === id);
+  if (!cat) return;
+  try {
+    const res = await fetch(CATEGORIES_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id_token: idToken,
+        category: { id: cat.id, label: cat.label, unit: cat.unit, min: cat.min, sortOrder: cat.sortOrder },
+      }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      if (AUTH_ERRORS.has(data.error)) return signOut(authErrorMessage(data));
+      throw new Error(data.error || 'save_failed');
+    }
+    Object.assign(cat, toCategoryEntry(data.category));
+    saveLocalCategories();
+  } catch (e) { /* left as the locally-saved value; next edit or reload retries */ }
+}
+
+async function addCategory() {
+  if (!idToken) return;
+  const sortOrder = CATEGORIES.length ? Math.max(...CATEGORIES.map(c => c.sortOrder || 0)) + 1 : 1;
+  try {
+    const res = await fetch(CATEGORIES_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_token: idToken, category: { label: 'New Workout', unit: '', min: 0, sortOrder } }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      if (AUTH_ERRORS.has(data.error)) return signOut(authErrorMessage(data));
+      throw new Error(data.error || 'save_failed');
+    }
+    CATEGORIES.push(toCategoryEntry(data.category));
+    saveLocalCategories();
+    renderSettings();
+    if (currentView === 'week') renderWeekView();
+  } catch (e) { setSyncStatus('save failed — will retry', 'error'); }
+}
+
+// Soft-delete (archived, never row-removed) — past weeks still reference
+// this category's id in CategoryEntries, so the row has to stay for their
+// history to keep making sense; it just stops showing up going forward.
+async function archiveCategory(id) {
+  if (!idToken) return;
+  try {
+    const res = await fetch(CATEGORIES_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_token: idToken, category: { id, archived: true } }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      if (AUTH_ERRORS.has(data.error)) return signOut(authErrorMessage(data));
+      throw new Error(data.error || 'save_failed');
+    }
+    CATEGORIES = CATEGORIES.filter(c => c.id !== id);
+    saveLocalCategories();
+    renderSettings();
+    if (currentView === 'week') renderWeekView();
+  } catch (e) { setSyncStatus('save failed — will retry', 'error'); }
 }
 
 // ---------- sync ----------
@@ -446,11 +561,11 @@ function closeSettings() {
 // Applies an edit from a settings text field and keeps the This Week table
 // in sync, without touching the settings screen's own DOM — re-rendering
 // settings on every keystroke would blow away focus/cursor position.
-function updateCategoryField(key, field, value) {
-  const cat = CATEGORIES.find(c => c.key === key);
+function updateCategoryField(id, field, value) {
+  const cat = CATEGORIES.find(c => c.id === id);
   if (!cat) return;
   cat[field] = value;
-  saveCategories();
+  queueSaveCategory(id);
   if (currentView === 'week') renderWeekView();
 }
 
@@ -461,12 +576,13 @@ function renderSettings() {
     const item = document.createElement('div');
     item.className = 'card settings-item';
     item.innerHTML = `
+      <button type="button" class="settings-archive-btn" data-id="${cat.id}" aria-label="Remove ${escapeHtml(cat.label)}">&times;</button>
       <label class="settings-label">Name</label>
-      <input class="settings-input settings-input-title" type="text" value="${escapeHtml(cat.label)}" data-key="${cat.key}" data-field="label" />
+      <input class="settings-input settings-input-title" type="text" value="${escapeHtml(cat.label)}" data-id="${cat.id}" data-field="label" />
       <label class="settings-label">Details</label>
-      <input class="settings-input settings-input-sub" type="text" value="${escapeHtml(cat.unit)}" data-key="${cat.key}" data-field="unit" />
+      <input class="settings-input settings-input-sub" type="text" value="${escapeHtml(cat.unit)}" data-id="${cat.id}" data-field="unit" />
       <label class="settings-label">Times per week</label>
-      <div class="stepper" data-key="${cat.key}">
+      <div class="stepper" data-id="${cat.id}">
         <button type="button" class="stepper-btn" data-dir="-1" aria-label="Decrease">−</button>
         <span class="stepper-value">${cat.min}</span>
         <button type="button" class="stepper-btn" data-dir="1" aria-label="Increase">+</button>
@@ -474,6 +590,14 @@ function renderSettings() {
     `;
     wrap.appendChild(item);
   });
+
+  const addBtn = document.createElement('button');
+  addBtn.type = 'button';
+  addBtn.className = 'settings-add-btn';
+  addBtn.textContent = '+ Add workout type';
+  addBtn.addEventListener('click', addCategory);
+  wrap.appendChild(addBtn);
+
   body.replaceChildren(wrap);
 }
 
@@ -484,18 +608,23 @@ function initSettings() {
   body.addEventListener('input', (e) => {
     const input = e.target.closest('.settings-input');
     if (!input) return;
-    updateCategoryField(input.dataset.key, input.dataset.field, input.value);
+    updateCategoryField(parseInt(input.dataset.id, 10), input.dataset.field, input.value);
   });
   body.addEventListener('click', (e) => {
+    const archiveBtn = e.target.closest('.settings-archive-btn');
+    if (archiveBtn) {
+      archiveCategory(parseInt(archiveBtn.dataset.id, 10));
+      return;
+    }
     const btn = e.target.closest('.stepper-btn');
     if (!btn) return;
     const stepper = btn.closest('.stepper');
-    const cat = CATEGORIES.find(c => c.key === stepper.dataset.key);
+    const cat = CATEGORIES.find(c => c.id === parseInt(stepper.dataset.id, 10));
     if (!cat) return;
     const dir = parseInt(btn.dataset.dir, 10);
     cat.min = Math.max(0, Math.min(MIN_PER_WEEK_MAX, (cat.min || 0) + dir));
     stepper.querySelector('.stepper-value').textContent = cat.min;
-    saveCategories();
+    queueSaveCategory(cat.id);
     if (currentView === 'week') renderWeekView();
   });
 }
@@ -679,7 +808,7 @@ function signOut(message) {
   idToken = null;
   currentEmail = null;
   weeks = {};
-  CATEGORIES = DEFAULT_CATEGORIES.map(c => ({ ...c }));
+  CATEGORIES = [];
   closeSettings();
   sessionStorage.removeItem(ID_TOKEN_KEY);
   document.getElementById('userEmail').textContent = '';
@@ -696,10 +825,10 @@ async function afterSignIn() {
   if (!currentEmail) return signOut('Could not read the signed-in account from the sign-in token — try again.');
 
   loadLocal();
-  loadCategories();
+  loadLocalCategories();
   showApp();
   render();
-  await fetchFromServer();
+  await Promise.all([fetchFromServer(), fetchCategories()]);
 }
 
 function handleCredentialResponse(response) {

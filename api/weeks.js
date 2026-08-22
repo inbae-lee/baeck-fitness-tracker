@@ -4,104 +4,42 @@
  * public keys (google-auth-library), checks the verified email against
  * ALLOWED_EMAILS, then reads/writes the WeeklyLogs sheet via a service
  * account (Sheets API).
+ *
+ * WeeklyLogs only holds the fields that are fixed for every user (steps,
+ * rest, week metadata). Per-user, user-definable workout types live in the
+ * CategoryDefs/CategoryEntries sheets (see lib/categories.js) — this
+ * endpoint merges a user's category entries into each week object as
+ * `c{categoryId}_{day}` fields so the frontend's week shape looks the same
+ * as it did when categories were a fixed set of columns.
  */
 
-const { OAuth2Client, GoogleAuth } = require('google-auth-library');
+const { verifyIdToken } = require('../lib/auth');
+const {
+  sheetsAccessToken, columnLetter, sheetsGetValues, sheetsUpdateValues,
+  sheetsAppendValues,
+} = require('../lib/sheets');
+const { DAY_SUFFIXES, ensureTabs, getUserEntries, saveUserEntries } = require('../lib/categories');
 
-const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const SHEET_ID = process.env.GOOGLE_SHEET_ID;
-const SERVICE_ACCOUNT_EMAIL = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-const SERVICE_ACCOUNT_PRIVATE_KEY = (process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || '').replace(/\\n/g, '\n');
-const ALLOWED_EMAILS = (process.env.ALLOWED_EMAILS || '').split(',').map(s => s.trim()).filter(Boolean);
-
 const SHEET_NAME = 'WeeklyLogs';
+
 // New columns are always appended at the end, never inserted or reordered —
 // COLUMNS positions map directly to sheet columns, so existing rows written
 // under an older layout would misalign if anything earlier moved.
 const COLUMNS = [
   'weekKey', 'email', 'startDate',
-  'uphillWalk', 'slowJog', 'strength',
   'steps_mon', 'steps_tue', 'steps_wed', 'steps_thu', 'steps_fri', 'steps_sat', 'steps_sun',
-  'padel', 'golf',
   'rest_mon', 'rest_tue', 'rest_wed', 'rest_thu', 'rest_fri', 'rest_sat', 'rest_sun',
   'updatedAt',
-  // Workout categories became day-selectable (like steps/rest already were)
-  // instead of a single running count — old 'uphillWalk'/'slowJog'/etc.
-  // columns above are kept for back-compat reads of older rows.
-  'uphillWalk_mon', 'uphillWalk_tue', 'uphillWalk_wed', 'uphillWalk_thu', 'uphillWalk_fri', 'uphillWalk_sat', 'uphillWalk_sun',
-  'slowJog_mon', 'slowJog_tue', 'slowJog_wed', 'slowJog_thu', 'slowJog_fri', 'slowJog_sat', 'slowJog_sun',
-  'strength_mon', 'strength_tue', 'strength_wed', 'strength_thu', 'strength_fri', 'strength_sat', 'strength_sun',
-  'padel_mon', 'padel_tue', 'padel_wed', 'padel_thu', 'padel_fri', 'padel_sat', 'padel_sun',
-  'golf_mon', 'golf_tue', 'golf_wed', 'golf_thu', 'golf_fri', 'golf_sat', 'golf_sun',
 ];
 const WEEK_KEY_COL = COLUMNS.indexOf('weekKey');
 const EMAIL_COL = COLUMNS.indexOf('email');
-
-// Base-26 spreadsheet column letters (A, B, ... Z, AA, AB, ...) — the old
-// single-letter formula only worked up to column 26.
-function columnLetter(index) {
-  let n = index + 1;
-  let letters = '';
-  while (n > 0) {
-    const rem = (n - 1) % 26;
-    letters = String.fromCharCode('A'.charCodeAt(0) + rem) + letters;
-    n = Math.floor((n - 1) / 26);
-  }
-  return letters;
-}
-
 const LAST_COL_LETTER = columnLetter(COLUMNS.length - 1);
 const FULL_RANGE = `${SHEET_NAME}!A:${LAST_COL_LETTER}`;
 
-const oauthClient = new OAuth2Client(CLIENT_ID);
-
-/**
- * Verifies a Google ID token. Returns { email } on success, or
- * { error, ...detail } describing exactly why it was rejected — useful for
- * debugging a misconfigured client ID/allowlist, and not sensitive to
- * expose (worst case it confirms a client ID mismatch).
- */
-async function verifyIdToken(idToken) {
-  if (!idToken) return { error: 'missing_token' };
-  let payload;
-  try {
-    const ticket = await oauthClient.verifyIdToken({ idToken, audience: CLIENT_ID });
-    payload = ticket.getPayload();
-  } catch (err) {
-    if (String(err && err.message).includes('Wrong recipient')) {
-      return { error: 'client_id_mismatch' };
-    }
-    return { error: 'invalid_token' };
-  }
-  if (payload.email_verified !== true) {
-    return { error: 'email_not_verified', email: payload.email };
-  }
-  if (ALLOWED_EMAILS.indexOf(payload.email) === -1) {
-    return { error: 'email_not_allowlisted', email: payload.email };
-  }
-  return { email: payload.email };
-}
-
-async function sheetsAccessToken() {
-  const auth = new GoogleAuth({
-    credentials: {
-      client_email: SERVICE_ACCOUNT_EMAIL,
-      private_key: SERVICE_ACCOUNT_PRIVATE_KEY,
-    },
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-  });
-  const client = await auth.getClient();
-  const { token } = await client.getAccessToken();
-  return token;
-}
-
-async function sheetsGetRows(token) {
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(FULL_RANGE)}`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  if (!res.ok) throw new Error(`Sheets API GET responded ${res.status}: ${await res.text()}`);
-  const data = await res.json();
-  return data.values || [];
-}
+// Matches the dynamic per-category fields the frontend sends, e.g.
+// 'c6_mon' -> categoryId 6, day 'mon'.
+const CATEGORY_FIELD_RE = /^c(\d+)_(mon|tue|wed|thu|fri|sat|sun)$/;
 
 function rowToObject(row) {
   const obj = {};
@@ -118,13 +56,7 @@ function rowToObject(row) {
  */
 async function ensureHeaderRow(token, rows) {
   if (rows.length > 0) return rows;
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(SHEET_NAME + '!A1')}?valueInputOption=RAW`;
-  const res = await fetch(url, {
-    method: 'PUT',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ values: [COLUMNS] }),
-  });
-  if (!res.ok) throw new Error(`Sheets API header write responded ${res.status}: ${await res.text()}`);
+  await sheetsUpdateValues(token, SHEET_ID, `${SHEET_NAME}!A1`, [COLUMNS]);
   return [COLUMNS];
 }
 
@@ -133,10 +65,29 @@ async function handleGet(req, res) {
   if (!auth.email) return res.status(200).json(Object.assign({ ok: false }, auth));
 
   const token = await sheetsAccessToken();
-  const rows = await sheetsGetRows(token);
+  await ensureTabs(token);
+
+  const [rows, entriesByWeek] = await Promise.all([
+    sheetsGetValues(token, SHEET_ID, FULL_RANGE),
+    getUserEntries(token, auth.email),
+  ]);
+
   const weeks = rows.slice(1) // skip header
     .filter(r => r[WEEK_KEY_COL] && r[EMAIL_COL] === auth.email) // only this user's rows
-    .map(rowToObject);
+    .map(rowToObject)
+    .map(week => {
+      const entries = entriesByWeek[week.weekKey];
+      if (entries) {
+        Object.keys(entries).forEach(catId => {
+          DAY_SUFFIXES.forEach(sfx => { week[`c${catId}_${sfx}`] = entries[catId][sfx]; });
+        });
+      }
+      return week;
+    });
+
+  // A week can exist purely as category entries (no WeeklyLogs row yet is
+  // unusual, but cheap to guard against) — not handled here since the
+  // frontend always creates the WeeklyLogs row first via POST.
   return res.status(200).json({ ok: true, weeks });
 }
 
@@ -150,10 +101,23 @@ async function handlePost(req, res) {
 
   week.email = auth.email; // server-verified owner, not whatever the client sent
   week.updatedAt = new Date().toISOString();
+
+  // Split the flat week object the frontend sends into the fixed
+  // WeeklyLogs fields and the dynamic per-category entries.
+  const entriesByCatId = {};
+  Object.keys(week).forEach(key => {
+    const m = key.match(CATEGORY_FIELD_RE);
+    if (!m) return;
+    const [, catId, day] = m;
+    if (!entriesByCatId[catId]) entriesByCatId[catId] = {};
+    entriesByCatId[catId][day] = week[key];
+  });
   const rowValues = COLUMNS.map(key => (week[key] !== undefined ? week[key] : ''));
 
   const token = await sheetsAccessToken();
-  const rows = await ensureHeaderRow(token, await sheetsGetRows(token));
+  await ensureTabs(token);
+
+  const rows = await ensureHeaderRow(token, await sheetsGetValues(token, SHEET_ID, FULL_RANGE));
 
   let rowIndex = -1;
   for (let i = 1; i < rows.length; i++) {
@@ -164,23 +128,13 @@ async function handlePost(req, res) {
   }
 
   if (rowIndex === -1) {
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(SHEET_NAME + '!A1')}:append?valueInputOption=RAW`;
-    const appendRes = await fetch(url, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ values: [rowValues] }),
-    });
-    if (!appendRes.ok) throw new Error(`Sheets API append responded ${appendRes.status}: ${await appendRes.text()}`);
+    await sheetsAppendValues(token, SHEET_ID, `${SHEET_NAME}!A1`, [rowValues]);
   } else {
     const range = `${SHEET_NAME}!A${rowIndex}:${LAST_COL_LETTER}${rowIndex}`;
-    const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(range)}?valueInputOption=RAW`;
-    const updateRes = await fetch(updateUrl, {
-      method: 'PUT',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ values: [rowValues] }),
-    });
-    if (!updateRes.ok) throw new Error(`Sheets API update responded ${updateRes.status}: ${await updateRes.text()}`);
+    await sheetsUpdateValues(token, SHEET_ID, range, [rowValues]);
   }
+
+  await saveUserEntries(token, auth.email, week.weekKey, entriesByCatId, week.updatedAt);
 
   return res.status(200).json({ ok: true, week });
 }

@@ -542,7 +542,40 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  position: relative;
 }
+
+.settings-archive-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.settings-archive-btn:active { background: var(--accent-soft); color: var(--ink); }
+
+.settings-add-btn {
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+  background: transparent;
+  cursor: pointer;
+}
+.settings-add-btn:active { background: var(--accent-soft); }
 
 .settings-label {
   font-size: 11px;

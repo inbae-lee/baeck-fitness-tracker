@@ -1,4 +1,4 @@
-# baeck-fitness-tracker v1.4
+# baeck-fitness-tracker v1.5
 
 A weekly workout tracker PWA, built for free: Google Sheet (database) → Vercel serverless
 function (backend API) → Vercel static hosting (installable frontend). No subscriptions,
@@ -31,11 +31,13 @@ Stack:
 - **Frontend**: plain HTML/CSS/JS, no build step, using
   [Google Identity Services](https://developers.google.com/identity/gsi/web) (GIS) for
   sign-in.
-- **Backend**: a single Vercel serverless function ([api/weeks.js](api/weeks.js)) that
-  verifies the ID token locally against Google's public keys (via
+- **Backend**: Vercel serverless functions ([api/weeks.js](api/weeks.js),
+  [api/categories.js](api/categories.js)) that verify the ID token locally against
+  Google's public keys (via
   [`google-auth-library`](https://github.com/googleapis/google-auth-library-nodejs) — no
-  external call needed per request), checks the verified email against `ALLOWED_EMAILS`,
-  then reads/writes the `WeeklyLogs` sheet via a service account (Sheets API).
+  external call needed per request), check the verified email against `ALLOWED_EMAILS`,
+  then read/write the Sheet via a service account (Sheets API). See [CLAUDE.md](CLAUDE.md)
+  for the sheet layout.
 - Both are deployed together on Vercel, so frontend and backend share an origin — no CORS
   to think about.
 
@@ -71,14 +73,19 @@ Stack:
 3. **Create a key**: open the service account → Keys → Add Key → Create new key → JSON.
    This downloads a JSON file — you need two fields from it: `client_email` and
    `private_key`.
-4. **Create and share a Sheet**: make a new Google Sheet, add a tab named exactly
-   `WeeklyLogs`, and give it this header row:
+4. **Create and share a Sheet**: make a new Google Sheet. The app uses three tabs, all
+   partitioned by an `email` column rather than one sheet per user — see
+   [CLAUDE.md](CLAUDE.md) for why. `CategoryDefs` and `CategoryEntries` are created
+   automatically on first API call if missing (see `lib/categories.js`), but `WeeklyLogs`
+   needs to exist upfront with this header row:
    ```
-   weekKey  email  startDate  uphillWalk  slowJog  strength  steps_mon  steps_tue  steps_wed  steps_thu  steps_fri  steps_sat  steps_sun  padel  golf  rest_mon  rest_tue  rest_wed  rest_thu  rest_fri  rest_sat  rest_sun  updatedAt
+   weekKey  email  startDate  steps_mon  steps_tue  steps_wed  steps_thu  steps_fri  steps_sat  steps_sun  rest_mon  rest_tue  rest_wed  rest_thu  rest_fri  rest_sat  rest_sun  updatedAt
    ```
    Each signed-in account gets its own row per week — `weekKey` alone isn't unique,
    `(weekKey, email)` is. The `email` value is set by the backend from the verified ID
-   token, not by the client, so there's no way to write into someone else's rows.
+   token, not by the client, so there's no way to write into someone else's rows. Workout
+   types (Uphill Walk, Slow Jogging, etc.) are no longer fixed columns here — they're
+   user-defined per account in `CategoryDefs`/`CategoryEntries`; see CLAUDE.md.
    Then share the Sheet with the service account's `client_email` as **Editor**. Copy
    the Sheet ID from its URL (`https://docs.google.com/spreadsheets/d/<SHEET_ID>/edit`).
 
@@ -148,3 +155,9 @@ offline-capable UI shell.
   won't show up for anyone (no row is anyone's data until it has an owner) — fill in the
   right email by hand for any rows you want to keep, or just delete them if they were
   test data.
+- Workout types (Uphill Walk, Padel, etc.) are editable and addable per account from the
+  Training Settings gear icon — each account gets its own independent set. A brand-new
+  account is seeded with the same 5 defaults the app used to hardcode; after that,
+  categories are entirely user-owned. See [CLAUDE.md](CLAUDE.md) for the schema. If you
+  had data under the pre-v1.5 fixed-column `WeeklyLogs` layout, run
+  `scripts/migrate-v2-categories.js` once (with `--dry-run` first) to move it over.
