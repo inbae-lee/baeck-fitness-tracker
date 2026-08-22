@@ -1,6 +1,6 @@
 'use strict';
 
-const CATEGORIES = [
+const DEFAULT_CATEGORIES = [
   { key: 'uphillWalk', label: 'Uphill Walk', unit: '30min · min 1×/wk', min: 1 },
   { key: 'slowJog', label: 'Slow Jogging', unit: '3KM · min 1×/wk', min: 1 },
   { key: 'strength', label: 'Strength Training', unit: '45min · min 2×/wk', min: 2 },
@@ -8,17 +8,26 @@ const CATEGORIES = [
   { key: 'golf', label: 'Golf Practice', unit: '30min+', min: 0 },
 ];
 
+// Mutable, user-editable copy of DEFAULT_CATEGORIES — labels, subtext, and
+// weekly minimums can be changed from the Training settings screen and are
+// persisted per-account (see loadCategories/saveCategories below).
+let CATEGORIES = DEFAULT_CATEGORIES.map(c => ({ ...c }));
+
 const DAY_SUFFIXES = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
 // Every row of the This Week table — workout categories plus the
 // daily-steps and full-rest-day rows — sharing one day-selectable grid
-// instead of categories using a separate +/- counter.
-const TRACKED_ROWS = [
-  ...CATEGORIES,
-  { key: 'steps', label: 'Daily Steps', unit: '8,000+ steps', min: 0 },
-  { key: 'rest', label: 'Full Rest Day', unit: '', min: 1 },
-];
+// instead of categories using a separate +/- counter. A function (not a
+// const) because CATEGORIES can be edited from settings after this file
+// first evaluates.
+function trackedRows() {
+  return [
+    ...CATEGORIES,
+    { key: 'steps', label: 'Daily Steps', unit: '8,000+ steps', min: 0 },
+    { key: 'rest', label: 'Full Rest Day', unit: '', min: 1 },
+  ];
+}
 
 const STEP_DAYS = [
   { key: 'steps_mon', label: 'M' },
@@ -77,7 +86,7 @@ let currentEmail = null;
 
 function emptyWeek(weekKey, startDate) {
   const w = { weekKey, startDate: startDate.toISOString().slice(0, 10) };
-  TRACKED_ROWS.forEach(row => {
+  trackedRows().forEach(row => {
     DAY_SUFFIXES.forEach(sfx => { w[`${row.key}_${sfx}`] = 0; });
   });
   return w;
@@ -115,6 +124,39 @@ function loadLocal() {
 function saveLocal() {
   if (!currentEmail) return;
   localStorage.setItem(storageKeyForEmail(currentEmail), JSON.stringify(weeks));
+}
+
+const CATEGORIES_STORAGE_KEY = 'laplog:categories';
+
+function categoriesStorageKeyForEmail(email) {
+  return `${CATEGORIES_STORAGE_KEY}:${email}`;
+}
+
+// Categories start from DEFAULT_CATEGORIES and have any saved edits
+// (label/unit/min) applied on top, matched by key — so a later app update
+// that changes a default doesn't get silently clobbered by an unrelated
+// saved field, and a category present in defaults but missing from an old
+// save still shows up.
+function loadCategories() {
+  CATEGORIES = DEFAULT_CATEGORIES.map(c => ({ ...c }));
+  if (!currentEmail) return;
+  try {
+    const raw = localStorage.getItem(categoriesStorageKeyForEmail(currentEmail));
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    CATEGORIES.forEach(cat => {
+      const override = saved.find(s => s.key === cat.key);
+      if (!override) return;
+      if (typeof override.label === 'string') cat.label = override.label;
+      if (typeof override.unit === 'string') cat.unit = override.unit;
+      if (typeof override.min === 'number') cat.min = override.min;
+    });
+  } catch (e) { /* ignore */ }
+}
+
+function saveCategories() {
+  if (!currentEmail) return;
+  localStorage.setItem(categoriesStorageKeyForEmail(currentEmail), JSON.stringify(CATEGORIES));
 }
 
 // ---------- sync ----------
@@ -335,9 +377,20 @@ function toggleDay(rowKey, dayIdx) {
 function renderTrainingTable(week) {
   const card = document.createElement('div');
   card.className = 'card table-card';
+
+  const header = document.createElement('div');
+  header.className = 'table-card-header';
   const h2 = document.createElement('h2');
   h2.textContent = 'Training';
-  card.appendChild(h2);
+  const gearBtn = document.createElement('button');
+  gearBtn.type = 'button';
+  gearBtn.className = 'settings-gear-btn';
+  gearBtn.setAttribute('aria-label', 'Training settings');
+  gearBtn.innerHTML = GEAR_ICON_SVG;
+  gearBtn.addEventListener('click', openSettings);
+  header.appendChild(h2);
+  header.appendChild(gearBtn);
+  card.appendChild(header);
 
   const table = document.createElement('div');
   table.className = 'grid-table';
@@ -346,13 +399,13 @@ function renderTrainingTable(week) {
   DAY_LABELS.forEach(l => table.appendChild(elFromHTML(`<div class="gt-cell gt-head">${l}</div>`)));
   table.appendChild(elFromHTML('<div class="gt-cell gt-head gt-total">Tot</div>'));
 
-  TRACKED_ROWS.forEach(row => {
+  trackedRows().forEach(row => {
     const total = rowTotal(row, week);
     const met = meetsMin(row, week);
 
     const labelCell = document.createElement('div');
     labelCell.className = 'gt-cell gt-label';
-    labelCell.innerHTML = `<span class="gt-title">${row.label}</span>${row.unit ? `<span class="gt-unit">${row.unit}</span>` : ''}`;
+    labelCell.innerHTML = `<span class="gt-title">${escapeHtml(row.label)}</span>${row.unit ? `<span class="gt-unit">${escapeHtml(row.unit)}</span>` : ''}`;
     table.appendChild(labelCell);
 
     DAY_SUFFIXES.forEach((sfx, i) => {
@@ -373,6 +426,78 @@ function renderTrainingTable(week) {
 
   card.appendChild(table);
   return card;
+}
+
+// ---------- render: Settings ----------
+
+const GEAR_ICON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>`;
+
+const MIN_PER_WEEK_MAX = 7;
+
+function openSettings() {
+  document.getElementById('settingsOverlay').hidden = false;
+  renderSettings();
+}
+
+function closeSettings() {
+  document.getElementById('settingsOverlay').hidden = true;
+}
+
+// Applies an edit from a settings text field and keeps the This Week table
+// in sync, without touching the settings screen's own DOM — re-rendering
+// settings on every keystroke would blow away focus/cursor position.
+function updateCategoryField(key, field, value) {
+  const cat = CATEGORIES.find(c => c.key === key);
+  if (!cat) return;
+  cat[field] = value;
+  saveCategories();
+  if (currentView === 'week') renderWeekView();
+}
+
+function renderSettings() {
+  const body = document.getElementById('settingsBody');
+  const wrap = document.createElement('div');
+  CATEGORIES.forEach(cat => {
+    const item = document.createElement('div');
+    item.className = 'card settings-item';
+    item.innerHTML = `
+      <label class="settings-label">Name</label>
+      <input class="settings-input settings-input-title" type="text" value="${escapeHtml(cat.label)}" data-key="${cat.key}" data-field="label" />
+      <label class="settings-label">Details</label>
+      <input class="settings-input settings-input-sub" type="text" value="${escapeHtml(cat.unit)}" data-key="${cat.key}" data-field="unit" />
+      <label class="settings-label">Times per week</label>
+      <div class="stepper" data-key="${cat.key}">
+        <button type="button" class="stepper-btn" data-dir="-1" aria-label="Decrease">−</button>
+        <span class="stepper-value">${cat.min}</span>
+        <button type="button" class="stepper-btn" data-dir="1" aria-label="Increase">+</button>
+      </div>
+    `;
+    wrap.appendChild(item);
+  });
+  body.replaceChildren(wrap);
+}
+
+function initSettings() {
+  document.getElementById('settingsBackBtn').addEventListener('click', closeSettings);
+
+  const body = document.getElementById('settingsBody');
+  body.addEventListener('input', (e) => {
+    const input = e.target.closest('.settings-input');
+    if (!input) return;
+    updateCategoryField(input.dataset.key, input.dataset.field, input.value);
+  });
+  body.addEventListener('click', (e) => {
+    const btn = e.target.closest('.stepper-btn');
+    if (!btn) return;
+    const stepper = btn.closest('.stepper');
+    const cat = CATEGORIES.find(c => c.key === stepper.dataset.key);
+    if (!cat) return;
+    const dir = parseInt(btn.dataset.dir, 10);
+    cat.min = Math.max(0, Math.min(MIN_PER_WEEK_MAX, (cat.min || 0) + dir));
+    stepper.querySelector('.stepper-value').textContent = cat.min;
+    saveCategories();
+    if (currentView === 'week') renderWeekView();
+  });
 }
 
 // ---------- render: History ----------
@@ -413,7 +538,7 @@ function renderHistoryView() {
       </div>
       <div class="status-dots">${dots}</div>
       <div class="history-detail">
-        ${CATEGORIES.map(cat => `<div class="detail-line"><span>${cat.label}</span><b>${rowTotal(cat, week)}${cat.min ? ' / min ' + cat.min : ''}</b></div>`).join('')}
+        ${CATEGORIES.map(cat => `<div class="detail-line"><span>${escapeHtml(cat.label)}</span><b>${rowTotal(cat, week)}${cat.min ? ' / min ' + cat.min : ''}</b></div>`).join('')}
         <div class="detail-line"><span>Daily Steps</span><b>${stepsDone}/7</b></div>
         <div class="detail-line"><span>Rest Days</span><b>${restDaysDone}/7 / min 1</b></div>
       </div>
@@ -425,6 +550,14 @@ function renderHistoryView() {
     wrap.appendChild(card);
   });
   app.replaceChildren(wrap);
+}
+
+// Category label/unit are user-editable free text (see settings) and get
+// interpolated into innerHTML in a few places below — escape so a saved
+// value containing e.g. `<` can't break markup.
+const ESCAPE_HTML_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ESCAPE_HTML_MAP[c]);
 }
 
 function elFromHTML(html) {
@@ -479,7 +612,7 @@ function renderMonthlyView() {
     card.innerHTML = `
       <h3>${label}</h3>
       <div class="row-unit">${m.weeks.length} week${m.weeks.length > 1 ? 's' : ''} logged</div>
-      ${CATEGORIES.map(c => `<div class="month-stat"><span>${c.label}</span><b>${m.totals[c.key]}</b></div>`).join('')}
+      ${CATEGORIES.map(c => `<div class="month-stat"><span>${escapeHtml(c.label)}</span><b>${m.totals[c.key]}</b></div>`).join('')}
       <div class="month-stat"><span>Step compliance</span><b>${stepPct}%</b></div>
       <div class="month-stat"><span>Rest days</span><b>${m.totals.restDays}</b></div>
     `;
@@ -507,6 +640,7 @@ function initTabs() {
   });
   document.getElementById('signOutBtn').addEventListener('click', () => signOut(''));
   document.getElementById('authRetryBtn').addEventListener('click', initGoogleSignIn);
+  initSettings();
 }
 
 // ---------- auth ----------
@@ -545,6 +679,8 @@ function signOut(message) {
   idToken = null;
   currentEmail = null;
   weeks = {};
+  CATEGORIES = DEFAULT_CATEGORIES.map(c => ({ ...c }));
+  closeSettings();
   sessionStorage.removeItem(ID_TOKEN_KEY);
   document.getElementById('userEmail').textContent = '';
   if (window.google && google.accounts && google.accounts.id) {
@@ -560,6 +696,7 @@ async function afterSignIn() {
   if (!currentEmail) return signOut('Could not read the signed-in account from the sign-in token — try again.');
 
   loadLocal();
+  loadCategories();
   showApp();
   render();
   await fetchFromServer();
