@@ -15,6 +15,12 @@ Instructions for Claude when working in this repo.
   for the full list): `package.json`, `index.html` (`<title>` + both `<h1>`s), the README
   heading, and `CACHE_NAME` in `sw.js`.
 
+## Local dev
+
+- `http://localhost:3000` is already whitelisted in the Google OAuth client's Authorized
+  JavaScript origins, so Sign In With Google works against `npx vercel dev --listen 3000`
+  without any Google Cloud Console changes.
+
 ## Project overview
 
 Weekly workout tracker PWA: Google Sheet (DB) → Vercel serverless functions
