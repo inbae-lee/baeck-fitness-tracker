@@ -1,4 +1,4 @@
-# baeck-fitness-tracker v1.6
+# baeck-fitness-tracker v1.7
 
 A weekly workout tracker PWA, built for free: Google Sheet (database) → Vercel serverless
 function (backend API) → Vercel static hosting (installable frontend). No subscriptions,

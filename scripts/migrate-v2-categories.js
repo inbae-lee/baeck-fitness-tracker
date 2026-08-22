@@ -28,25 +28,35 @@
 const fs = require('fs');
 const path = require('path');
 
-// Minimal .env loader — one KEY=value per line, value optionally wrapped in
-// matching quotes (the shape `vercel env pull` writes; the private key
-// comes through as a single line with literal \n escapes, which
-// lib/sheets.js already un-escapes). Doesn't overwrite a var already set in
-// the real environment.
+// Minimal .env loader — one KEY=value per entry, value optionally wrapped
+// in matching quotes. `vercel env pull` writes multi-line secrets (like a
+// PEM private key) with the real newlines preserved INSIDE the quotes
+// rather than as \n escapes, so this scans char-by-char for the matching
+// closing quote instead of splitting on '\n' first (a naive per-line split
+// would silently truncate the key at its first embedded newline). Doesn't
+// overwrite a var already set in the real environment.
 function loadEnvFile(filePath) {
   if (!fs.existsSync(filePath)) return;
-  const lines = fs.readFileSync(filePath, 'utf8').split('\n');
-  lines.forEach(line => {
-    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
-    if (!match) return;
+  const raw = fs.readFileSync(filePath, 'utf8');
+  const lineStartRe = /^([A-Za-z_][A-Za-z0-9_]*)=/gm;
+  let match;
+  while ((match = lineStartRe.exec(raw))) {
     const key = match[1];
-    let value = match[2];
-    const quote = value[0];
-    if ((quote === '"' || quote === "'") && value[value.length - 1] === quote) {
-      value = value.slice(1, -1);
+    const valueStart = lineStartRe.lastIndex;
+    const quote = raw[valueStart];
+    let value, nextSearchFrom;
+    if (quote === '"' || quote === "'") {
+      const closeIdx = raw.indexOf(quote, valueStart + 1);
+      value = raw.slice(valueStart + 1, closeIdx === -1 ? undefined : closeIdx);
+      nextSearchFrom = closeIdx === -1 ? raw.length : closeIdx + 1;
+    } else {
+      const eol = raw.indexOf('\n', valueStart);
+      value = raw.slice(valueStart, eol === -1 ? undefined : eol);
+      nextSearchFrom = eol === -1 ? raw.length : eol;
     }
     if (process.env[key] === undefined) process.env[key] = value;
-  });
+    lineStartRe.lastIndex = nextSearchFrom;
+  }
 }
 loadEnvFile(path.resolve(process.cwd(), process.env.ENV_FILE || '.env.migration'));
 
